@@ -46,9 +46,9 @@ Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `co
   { "matches": ["*://search.rakuten.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/rakuten.js"], "run_at": "document_idle" },
   { "matches": ["*://shopping.yahoo.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/yahoo_shopping.js"], "run_at": "document_idle" },
   { "matches": ["*://www.youtube.com/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/youtube.js"], "run_at": "document_idle" },
-  { "matches": ["*://www.youtube.com/watch*"], "js": ["src/storage.js", "src/content-name.js", "src/keyword-filter.js", "src/adapters/youtube_watch.js"], "run_at": "document_idle" },
-  { "matches": ["*://news.yahoo.co.jp/*"], "js": ["src/storage.js", "src/content-name.js", "src/keyword-filter.js", "src/adapters/yahoo_news.js"], "run_at": "document_idle" },
-  { "matches": ["*://www.yahoo.co.jp/*"], "js": ["src/storage.js", "src/content-name.js", "src/keyword-filter.js", "src/adapters/yahoo_japan.js"], "run_at": "document_idle" },
+  { "matches": ["*://www.youtube.com/watch*"], "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/youtube_watch.js"], "run_at": "document_idle" },
+  { "matches": ["*://news.yahoo.co.jp/*"], "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/yahoo_news.js"], "run_at": "document_idle" },
+  { "matches": ["*://www.yahoo.co.jp/*"], "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/yahoo_japan.js"], "run_at": "document_idle" },
   { "matches": ["*://auctions.yahoo.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/yahoo_auctions.js"], "run_at": "document_idle" },
   { "matches": ["*://www.amazon.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/amazon.js"], "run_at": "document_idle" }
 ]
