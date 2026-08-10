@@ -1,4 +1,4 @@
-// ChromeBlocker storage 層。
+// Nope — ストレージ層。
 // blocklist は端末間で同期したいので chrome.storage.sync、
 // productId→storeId の解決キャッシュは容量が大きく端末固有でよいので chrome.storage.local に置く。
 // content script 群から <script> 連結で読み込まれる前提のグローバル公開（ビルド工程なし・MV3 content_scripts）。

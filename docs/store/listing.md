@@ -2,19 +2,29 @@
 
 r6-store-listing の成果物。Chrome Web Store デベロッパーダッシュボードの「Store listing」タブ入力時にこのまま転記できる形でまとめる。r7-submit が実際の入力・提出を行う。
 
-事実確認元: `manifest.json`（permissions・content_scripts）、`src/storage.js`、`src/mtop.js`、`src/mtop-main-relay.js`、`src/content-item.js`、`popup/popup.html`、`docs/evidence/*`、`docs/plan_chromeblocker-release.md`（2026-08-10 時点）。
+事実確認元: `manifest.json`（permissions・content_scripts）、`src/storage.js`、`src/mtop.js`、`src/mtop-main-relay.js`、`src/content-item.js`、`popup/popup.html`、`docs/evidence/*`、`docs/plan_chromeblocker-release.md`（2026-08-11 時点）。
+
+---
+
+## 製品名・URL
+
+- **製品名**: Nope — 見たくないもの見せません
+- **Homepage URL**: https://github.com/kitepon-rgb/Nope
+- **Privacy policy URL**: https://github.com/kitepon-rgb/Nope/blob/main/docs/store/privacy.md
 
 ---
 
 ## Single purpose（単一目的の宣言）
 
-> AliExpress の検索結果と商品ページから、ユーザーが指定したストアの商品を非表示にする。
+> ユーザーが指定した発信元またはキーワードに基づいて、閲覧中の Web ページから不要なコンテンツを非表示にする。
 
 **日本語（ダッシュボード入力用、そのまま）:**
 
-AliExpress の検索結果と商品ページから、ユーザーが指定したストアの商品を非表示にします。
+ユーザーが指定した発信元またはキーワードに基づいて、閲覧中の Web ページから不要なコンテンツを非表示にします。
 
-**この一文で拡張の全機能を説明できる根拠:**
+**この宣言の根拠と実装の現状:**
+
+v1.1.0 時点では AliExpress の特定ストア（発信元）のみ対応。宣言文は意図的に広く定義している——v2 以降でサイト追加・キーワード対応を行う際に「目的が変わった」として審査でリジェクトされないよう、機能追加前から広い定義で出す方針（`docs/roadmap-block-targets.md` 参照）。宣言文は現在の実装を偽るものでなく、この拡張が目指す機能の正確な要約である。
 
 拡張の実装は3つの画面にまたがるが、すべて上記1目的のための手段でしかない。
 
@@ -22,13 +32,11 @@ AliExpress の検索結果と商品ページから、ユーザーが指定した
 - `src/content-item.js`（商品ページ）: 「このストアをブロック」ボタン＝非表示対象（ブロックリスト）への追加・解除の入力手段
 - `popup/`（拡張アイコンクリック時）: ブロックリストの一覧表示・追加・削除・キャッシュクリア＝非表示対象を管理する手段
 
-ボタンや popup を独立機能として書かず、「ユーザーが指定したストアの商品を非表示にする」という1つの目的を実現するための入力/管理UIとして一貫させて説明する。
-
 ---
 
 ## Permission justification（権限の正当化）
 
-Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `content_scripts.matches` の両方がホストアクセスとして表示される。実際の `manifest.json`（2026-08-10 時点）は次の通り:
+Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `content_scripts.matches` の両方がホストアクセスとして表示される。実際の `manifest.json`（2026-08-11 時点）は次の通り:
 
 ```json
 "permissions": ["storage"],
@@ -56,7 +64,7 @@ Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `co
 
 ## Privacy declaration（プライバシー申告、要約）
 
-詳細は `docs/store/privacy.md`。ダッシュボードの **Privacy practices** タブでの申告方針:
+詳細は `docs/store/privacy.md`（公開URL: https://github.com/kitepon-rgb/Nope/blob/main/docs/store/privacy.md）。ダッシュボードの **Privacy practices** タブでの申告方針:
 
 - **Data collection**: 拡張の開発者・提供者は、いかなるユーザーデータも収集・受信しない（送信先はすべてブラウザローカルの `chrome.storage`、またはユーザー自身が閲覧中の AliExpress 自身のドメインのみ）。
 - **Data usage 該当なし**: Personally identifiable info / Health info / Financial and payment info / Authentication info / Personal communications / Location / Web history / User activity のいずれについても「収集して外部（開発者・第三者）へ送信する」に該当する項目はない。
@@ -66,13 +74,13 @@ Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `co
 
 ## Description（説明文）
 
-### 短い説明（Short description、132文字以内。実測74文字）
+### 短い説明（Short description、132文字以内。実測90文字）
 
-> AliExpressの検索結果・商品ページから、指定したストアの商品を非表示にします。ブロック対象はポップアップでいつでも一覧・追加・解除できます。
+> 閲覧中のWebページから、指定した発信元のコンテンツを非表示にするブロッカー。現在はAliExpressの特定ストアに対応。ポップアップでブロック対象の一覧・追加・解除ができます。
 
 ### 詳細説明（Detailed description）
 
-> AliExpress で「二度と表示したくない」ストアの商品を、検索結果から自動的に非表示にする拡張機能です。
+> 閲覧中のWebページから、指定した発信元のコンテンツを非表示にするブロッカー拡張機能です。現在はAliExpress（aliexpress.com）の特定ストアに対応しています。
 >
 > **できること**
 > - 商品ページの「このストアをブロック」ボタンから、そのストアをワンクリックでブロックリストに追加
@@ -89,7 +97,7 @@ Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `co
 > **対応サイト**
 > - AliExpress（`aliexpress.com`）の検索結果ページ・商品ページのみで動作します
 
-**誇大表現・煽り文言の排除について**: 拡張内部の UI（トースト通知等、`src/content-item.js`）には煽情的な文言はない（「〇〇をブロックしました」「〇〇のブロックを解除しました」という淡々とした通知のみ）。design memo に記載の「ざまぁ」的な演出文言はストア掲載文には一切含めていない——含めるべき現行コード上の演出も見当たらない（2026-08-10 時点、`grep` で拡張内 UI 文言を確認済み）。r1-placeholder で追加予定の「猫プレースホルダー」表示についても、説明文では「控えめなプレースホルダー表示」という機能的な表現に留め、キャラクター性の煽りは書かない。
+**誇大表現・煽り文言の排除について**: 拡張内部の UI（トースト通知等、`src/content-item.js`）には煽情的な文言はない（「〇〇をブロックしました」「〇〇のブロックを解除しました」という淡々とした通知のみ）。
 
 ---
 
@@ -110,7 +118,7 @@ Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `co
 | 2 | 商品ページ：「このストアをブロック」ボタン | `docs/evidence/t3-button-injected.png` / `t3-blocked.png`（1280x800での撮り直しが望ましい。b4-verify 対象外のため未更新） | 商品ページの「このストアをブロック」ボタンでワンクリック登録 |
 | 3 | ポップアップ：ブロック中ストア一覧・表示モード切替UI・kitepon.devブランド適用済み | `docs/evidence/ac2-popup.png`（b4-verify、2026-08-10実測） | ポップアップでブロック中のストアを確認・削除、表示モードもいつでも切替できます |
 | 4 | 完全非表示（collapse）モードに切替後の検索結果（後続カードが前へ詰まる） | `docs/evidence/ac5-collapse.png`（b4-verify、2026-08-10実測） | 完全に消して空間を詰める表示にも切替可能です |
-| 5 | 参考：ブロック前の通常の検索結果（Before比較用） | `docs/evidence/ac3-unblock.png`（b4-verify、2026-08-10実測。ブロック解除後の通常表示） | （通常のAliExpress検索結果。1・4との対比用。5枚目として掲載するか、1枚目の前段として使うかは掲載時に判断） |
+| 5 | 参考：ブロック前の通常の検索結果（Before比較用） | `docs/evidence/ac3-unblock.png`（b4-verify、2026-08-10実測。ブロック解除後の通常表示） | （通常の検索結果。1・4との対比用。5枚目として掲載するか、1枚目の前段として使うかは掲載時に判断） |
 
 **掲載方針**: 1枚目は必ず「プレースホルダー表示」という中核体験（既定の見た目）を見せる。2・3枚目で操作方法（ブロックの追加・管理）を示す。4枚目でcollapseモードという追加の柔軟性を見せる。5枚目（Before）は任意——入れる場合は1枚目の前に置いて「導入前後の比較」として見せる構成が分かりやすいが、最終順序の決定はストア掲載時（r7）の裁量とする。1〜4のみでも提出可能な構成として扱ってよい。
 

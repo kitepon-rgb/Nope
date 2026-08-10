@@ -1,12 +1,14 @@
-# ChromeBlocker プライバシーポリシー
+# Nope — 見たくないもの見せません プライバシーポリシー
 
-最終更新日: 2026-08-10
+最終更新日: 2026-08-11
 
-README（r4-github が整備予定）からこのファイルへリンクする想定。Chrome Web Store デベロッパーダッシュボードの「Privacy practices」タブでの申告は、このページの内容と食い違わせないこと。
+公開 URL（Chrome Web Store 申告用）: https://github.com/kitepon-rgb/Nope/blob/main/docs/store/privacy.md
+
+Chrome Web Store デベロッパーダッシュボードの「Privacy practices」タブでの申告は、このページの内容と食い違わせないこと。
 
 ## 収集するデータ
 
-ChromeBlocker（以下「本拡張」）は、開発者を含むいかなる相手に対しても、ユーザーのデータを収集・送信しません。
+Nope — 見たくないもの見せません（以下「本拡張」）は、開発者を含むいかなる相手に対しても、ユーザーのデータを収集・送信しません。
 
 - 個人を特定する情報の収集: なし
 - 閲覧履歴・利用状況の収集: なし
