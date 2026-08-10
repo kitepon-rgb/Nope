@@ -89,7 +89,7 @@ const CB_POPUP = (() => {
     renderList(listEl);
   }
 
-  return { parseStoreInput, formatDate, sortEntries, init };
+  return { parseStoreInput, formatDate, sortEntries, renderList, init };
 })();
 
 CB_POPUP.init();

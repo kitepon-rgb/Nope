@@ -13,15 +13,35 @@ class FakeMutationObserver {
   disconnect() {}
 }
 
-function loadContentItem() {
+function makeFakeElement() {
+  const listeners = {};
+  return {
+    style: {},
+    textContent: '',
+    addEventListener(type, handler) { listeners[type] = handler; },
+    fireClick() { return listeners.click(); },
+  };
+}
+
+function makeFakeStorage(initialBlocked) {
+  let blocked = { ...initialBlocked };
+  return {
+    async getBlockedStores() { return { ...blocked }; },
+    async addBlockedStore(storeId, name) { blocked[storeId] = { name, addedAt: 0 }; },
+    async removeBlockedStore(storeId) { delete blocked[storeId]; },
+  };
+}
+
+function loadContentItem(storage) {
   const context = vm.createContext({
     document: {
       querySelectorAll: () => [],
-      body: {},
-      createElement: () => ({ style: {}, addEventListener() {} }),
+      body: { appendChild() {} },
+      createElement: () => makeFakeElement(),
     },
     MutationObserver: FakeMutationObserver,
-    CB_STORAGE: { getBlockedStores: async () => ({}) },
+    setTimeout: () => {},
+    CB_STORAGE: storage ?? { getBlockedStores: async () => ({}) },
   });
   vm.runInContext(readFileSync(SRC, 'utf8'), context);
   return vm.runInContext('CB_ITEM', context);
@@ -62,4 +82,34 @@ test('findStoreLinkはstoreリンクが無ければnullを返す', () => {
   const item = loadContentItem();
   const found = item.findStoreLink({ querySelectorAll: () => [{ getAttribute: () => '/item/123.html', textContent: '' }] });
   assert.equal(found, null);
+});
+
+test('createButtonは未ブロックのstoreに「ブロック」ボタンを出す', async () => {
+  const item = loadContentItem(makeFakeStorage({}));
+  const button = await item.createButton('1100223114', 'NailNest Store');
+  assert.equal(button.textContent, '🚫 このストアをブロック');
+});
+
+test('createButtonは既にブロック済みのstoreに「ブロック解除」ボタンを出す', async () => {
+  const item = loadContentItem(makeFakeStorage({ 1100223114: { name: 'NailNest Store', addedAt: 0 } }));
+  const button = await item.createButton('1100223114', 'NailNest Store');
+  assert.equal(button.textContent, 'ブロック解除');
+});
+
+test('createButtonのクリックでブロック追加され表示がトグルする', async () => {
+  const storage = makeFakeStorage({});
+  const item = loadContentItem(storage);
+  const button = await item.createButton('1100223114', 'NailNest Store');
+  await button.fireClick();
+  assert.deepEqual(await storage.getBlockedStores(), { 1100223114: { name: 'NailNest Store', addedAt: 0 } });
+  assert.equal(button.textContent, 'ブロック解除');
+});
+
+test('createButtonのクリックでブロック済みstoreは解除され表示が戻る', async () => {
+  const storage = makeFakeStorage({ 1100223114: { name: 'NailNest Store', addedAt: 0 } });
+  const item = loadContentItem(storage);
+  const button = await item.createButton('1100223114', 'NailNest Store');
+  await button.fireClick();
+  assert.deepEqual(await storage.getBlockedStores(), {});
+  assert.equal(button.textContent, '🚫 このストアをブロック');
 });

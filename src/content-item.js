@@ -94,7 +94,7 @@ const CB_ITEM = (() => {
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  return { extractStoreId, extractStoreName, findStoreLink, init };
+  return { extractStoreId, extractStoreName, findStoreLink, createButton, init };
 })();
 
 CB_ITEM.init();

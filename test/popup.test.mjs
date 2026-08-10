@@ -8,13 +8,39 @@ import vm from 'node:vm';
 
 const SRC = path.join(import.meta.dirname, '..', 'popup', 'popup.js');
 
-function loadPopup() {
+function makeFakeElement() {
+  const listeners = {};
+  const el = {
+    textContent: '',
+    children: [],
+    append(...items) { el.children.push(...items); },
+    addEventListener(type, handler) { listeners[type] = handler; },
+    fireClick() { return listeners.click(); },
+  };
+  return el;
+}
+
+function makeFakeListEl() {
+  const el = makeFakeElement();
+  el.replaceChildren = () => { el.children = []; };
+  return el;
+}
+
+function makeFakeStorage(initialBlocked) {
+  let blocked = { ...initialBlocked };
+  return {
+    async getBlockedStores() { return { ...blocked }; },
+    async removeBlockedStore(storeId) { delete blocked[storeId]; },
+  };
+}
+
+function loadPopup(storage) {
   const context = vm.createContext({
     document: {
-      getElementById: () => ({ addEventListener() {}, replaceChildren() {}, append() {} }),
-      createElement: () => ({ append() {}, addEventListener() {} }),
+      getElementById: () => makeFakeListEl(),
+      createElement: () => makeFakeElement(),
     },
-    CB_STORAGE: { getBlockedStores: async () => ({}) },
+    CB_STORAGE: storage ?? { getBlockedStores: async () => ({}) },
   });
   vm.runInContext(readFileSync(SRC, 'utf8'), context);
   return vm.runInContext('CB_POPUP', context);
@@ -53,4 +79,35 @@ test('formatDateは文字列を返す', () => {
   const formatted = popup.formatDate(1786000000000);
   assert.equal(typeof formatted, 'string');
   assert.ok(formatted.length > 0);
+});
+
+test('renderListは空なら「ブロック中のストアはありません」を表示する', async () => {
+  const popup = loadPopup(makeFakeStorage({}));
+  const listEl = makeFakeListEl();
+  await popup.renderList(listEl);
+  assert.equal(listEl.children.length, 1);
+  assert.equal(listEl.children[0].textContent, 'ブロック中のストアはありません');
+});
+
+test('renderListはaddedAt降順で行を描画する', async () => {
+  const popup = loadPopup(makeFakeStorage({
+    100: { name: 'Old Store', addedAt: 1000 },
+    200: { name: 'New Store', addedAt: 3000 },
+  }));
+  const listEl = makeFakeListEl();
+  await popup.renderList(listEl);
+  assert.equal(listEl.children.length, 2);
+  assert.ok(listEl.children[0].children[0].textContent.includes('New Store'));
+  assert.ok(listEl.children[1].children[0].textContent.includes('Old Store'));
+});
+
+test('renderListの削除ボタンでstoreを消して再描画する', async () => {
+  const storage = makeFakeStorage({ 100: { name: 'Store A', addedAt: 1000 } });
+  const popup = loadPopup(storage);
+  const listEl = makeFakeListEl();
+  await popup.renderList(listEl);
+  const removeBtn = listEl.children[0].children[1];
+  await removeBtn.fireClick();
+  assert.deepEqual(await storage.getBlockedStores(), {});
+  assert.equal(listEl.children[0].textContent, 'ブロック中のストアはありません');
 });
