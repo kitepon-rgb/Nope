@@ -69,14 +69,26 @@ function main() {
       });
     }
 
-    // ステージング直下の * を圧縮することで、ZIP内にステージングディレクトリ
-    // 自体は現れず manifest.json がルート直下に来る。
-    const psCommand =
-      `Compress-Archive -Path '${stagingDir.replace(/'/g, "''")}\\*' ` +
-      `-DestinationPath '${outPath.replace(/'/g, "''")}' -Force`;
+    // ステージング直下の全ファイルを ZIP にまとめる。エントリ名は必ずフォワードスラッシュで
+    // 統一する（PowerShell の Compress-Archive はバックスラッシュで保存するため WSL 上での
+    // 展開時に平坦ファイル名になる問題がある。Python zipfile は常にフォワードスラッシュを使う）。
     execFileSync(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", psCommand],
+      "python3",
+      [
+        "-c",
+        [
+          "import zipfile, os, sys",
+          "staging, outpath = sys.argv[1], sys.argv[2]",
+          "with zipfile.ZipFile(outpath, 'w', zipfile.ZIP_DEFLATED) as zf:",
+          "    for root, dirs, files in os.walk(staging):",
+          "        for f in files:",
+          "            fp = os.path.join(root, f)",
+          "            arcname = os.path.relpath(fp, staging).replace(os.sep, '/')",
+          "            zf.write(fp, arcname)",
+        ].join("\n"),
+        stagingDir,
+        outPath,
+      ],
       { stdio: "inherit" },
     );
   } finally {
