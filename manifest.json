@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "ChromeBlocker — AliExpress ストアブロッカー",
+  "version": "0.1.0",
+  "description": "AliExpress の検索結果から指定ストアの商品を消し、ブラックリストを管理する。",
+  "permissions": ["storage"],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "ChromeBlocker"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.aliexpress.com/*"],
+      "js": ["src/md5.js", "src/storage.js", "src/mtop.js", "src/content-item.js", "src/content-search.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
