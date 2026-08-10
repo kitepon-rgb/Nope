@@ -1,0 +1,9 @@
+{
+  "evidence_id": "b4-verify-mio-2026-08-10",
+  "repo_id": "self",
+  "path": "docs/evidence/b4-verify.md",
+  "git_blob_oid": "0760eba5ac225e77f2f01411730214e0871d40cf",
+  "content_digest": "4e9f255ad3e5f39d94717f8bceec4fc64392fbbd7409b80bf8d31f1c522f4ebe",
+  "media_type": "text/markdown",
+  "anchor_digest": null
+}

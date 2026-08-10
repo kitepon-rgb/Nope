@@ -1,0 +1,9 @@
+{
+  "evidence_id": "b5-repackage-mio-2026-08-11",
+  "repo_id": "self",
+  "path": "docs/evidence/b5-repackage.md",
+  "git_blob_oid": "848f7642119e3ce8457168578a9cf4843d1c6b77",
+  "content_digest": "b0c3d0554d31bb137fd32db07578d8abaa75a836890665c1ff0490707f6d2b1c",
+  "media_type": "text/markdown",
+  "anchor_digest": null
+}
