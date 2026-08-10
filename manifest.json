@@ -44,6 +44,21 @@
       "matches": ["*://*.aliexpress.com/*"],
       "js": ["src/md5.js", "src/storage.js", "src/mtop.js", "src/content-item.js", "src/content-search.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://search.rakuten.co.jp/*"],
+      "js": ["src/storage.js", "src/content-search.js", "src/adapters/rakuten.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://shopping.yahoo.co.jp/*"],
+      "js": ["src/storage.js", "src/content-search.js", "src/adapters/yahoo_shopping.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://www.youtube.com/*"],
+      "js": ["src/storage.js", "src/content-search.js", "src/adapters/youtube.js"],
+      "run_at": "document_idle"
     }
   ]
 }
