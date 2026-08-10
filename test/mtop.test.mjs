@@ -1,5 +1,6 @@
-// mtop.js の署名生成とJSONP剥がしを検証する。
-// mtop 実レスポンスのフィールド抽出（storeId 解決本体）は実測未確定のためテスト対象外。
+// mtop.js の署名生成・JSONP剥がし・storeId抽出を検証する。
+// resolveStoreId/fetchViaJsonp のDOM実行(script注入+CustomEventリレー)はnode vmでは
+// 論理を模擬するだけで実測にならないため対象外。実測はagent-browserで行う。
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -61,4 +62,40 @@ test('parseJsonpはcallback(...)を剥がしてJSONを返す', () => {
 test('parseJsonpは想定外の形にthrowする', () => {
   const mtop = loadMtop();
   assert.throws(() => mtop.parseJsonp('not-jsonp-shaped', 'cb123'), /JSONPの形が想定外/);
+});
+
+// 2026-08-10 bell実測で確定した実レスポンス構造（要点のみ抜粋）。
+const SUCCESS_RESPONSE = {
+  ret: ['SUCCESS::调用成功'],
+  data: {
+    result: {
+      SHOP_CARD_PC: { sellerInfo: { storeNum: '1104977015', storeURL: '1104977016' } },
+      GLOBAL_DATA: { globalData: { storeId: '1104977016', sellerId: '6003189887' } },
+      DESC: { storeId: '1104977016' },
+    },
+  },
+};
+
+test('extractStoreIdはSHOP_CARD_PC.sellerInfo.storeNumを返す（globalData.storeIdは罠なので使わない）', () => {
+  const mtop = loadMtop();
+  assert.equal(mtop.extractStoreId(SUCCESS_RESPONSE), '1104977015');
+});
+
+test('extractStoreIdはretにSUCCESSが無ければthrowする', () => {
+  const mtop = loadMtop();
+  const response = { ret: ['FAIL_SYS_USER_VALIDATE'], data: {} };
+  assert.throws(() => mtop.extractStoreId(response), /呼び出し失敗/);
+});
+
+test('extractStoreIdはstoreNumが欠けていればthrowする', () => {
+  const mtop = loadMtop();
+  const response = { ret: ['SUCCESS::调用成功'], data: { result: { SHOP_CARD_PC: { sellerInfo: {} } } } };
+  assert.throws(() => mtop.extractStoreId(response), /storeNum がありません/);
+});
+
+test('isTokenErrorはTOKEN_EXPIRED/TOKEN_EMPTYを検知する', () => {
+  const mtop = loadMtop();
+  assert.equal(mtop.isTokenError({ ret: ['FAIL_SYS_SESSION_EXPIRED::TOKEN_EXPIRED'] }), true);
+  assert.equal(mtop.isTokenError({ ret: ['FAIL_SYS_TOKEN_EMPTY::TOKEN_EMPTY'] }), true);
+  assert.equal(mtop.isTokenError({ ret: ['SUCCESS::调用成功'] }), false);
 });

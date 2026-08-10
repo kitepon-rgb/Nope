@@ -8,6 +8,8 @@ const CB_MTOP = (() => {
   const APP_KEY = '12574478';
   const API_NAME = 'mtop.aliexpress.pdp.pc.query';
   const ENDPOINT = `https://acs.aliexpress.com/h5/${API_NAME}/1.0/`;
+  const RESPONSE_TIMEOUT_MS = 10000;
+  const RELAY_EVENT_PREFIX = 'cb-mtop-result-';
 
   function readToken() {
     const match = document.cookie.match(/(?:^|;\s*)_m_h5_tk=([^;]+)/);
@@ -51,5 +53,100 @@ const CB_MTOP = (() => {
     return JSON.parse(text.slice(prefix.length, -1));
   }
 
-  return { readToken, buildData, buildUrl, parseJsonp };
+  // 実測確定(2026-08-10 bell): ret に SUCCESS を含めば成功。storeId は
+  // data.result.SHOP_CARD_PC.sellerInfo.storeNum が正（DOM の a[href*="/store/"] と一致）。
+  // data.result.GLOBAL_DATA.globalData.storeId / sellerInfo.storeURL は別系統IDの罠のため使わない。
+  /** @param {any} response @returns {string} */
+  function extractStoreId(response) {
+    const ret = Array.isArray(response && response.ret) ? response.ret : [];
+    if (!ret.some((r) => typeof r === 'string' && r.startsWith('SUCCESS'))) {
+      throw new Error(`mtop: 呼び出し失敗 ret=${JSON.stringify(ret)}`);
+    }
+    const storeId = response && response.data && response.data.result
+      && response.data.result.SHOP_CARD_PC && response.data.result.SHOP_CARD_PC.sellerInfo
+      && response.data.result.SHOP_CARD_PC.sellerInfo.storeNum;
+    if (!storeId) throw new Error('mtop: レスポンスに SHOP_CARD_PC.sellerInfo.storeNum がありません');
+    return String(storeId);
+  }
+
+  /** @param {any} response @returns {boolean} */
+  function isTokenError(response) {
+    const ret = Array.isArray(response && response.ret) ? response.ret : [];
+    return ret.some((r) => typeof r === 'string' && (r.includes('TOKEN_EXPIRED') || r.includes('TOKEN_EMPTY')));
+  }
+
+  // JSONP は content script の isolated world では受け取れない（<script src> は main world 実行）。
+  // main world にリレー関数を注入し、main world → isolated world は CustomEvent の detail(文字列)経由で受け渡す。
+  // 実測確定(2026-08-10 bell): この経路で mtop 実レスポンス(SUCCESS)を取得済み。
+  /** @param {string} productId @returns {Promise<any>} */
+  function fetchViaJsonp(productId) {
+    return new Promise((resolve, reject) => {
+      const token = readToken();
+      if (!token) { reject(new Error('mtop: _m_h5_tk cookie がありません（未ログイン状態の可能性）')); return; }
+
+      const t = Date.now();
+      const { url, callback } = buildUrl(productId, token, t);
+      const eventName = `${RELAY_EVENT_PREFIX}${callback}`;
+      let settled = false;
+      let timer = null;
+      const relayScript = document.createElement('script');
+      const jsonpScript = document.createElement('script');
+
+      const cleanup = () => {
+        document.removeEventListener(eventName, onEvent);
+        if (timer) clearTimeout(timer);
+        relayScript.remove();
+        jsonpScript.remove();
+        // main world 側に関数が残っていても次回呼び出し名(t依存)が変わるため実害はないが、
+        // 念のため main world 側にも削除コードを埋め込んでいる（下記 textContent 参照）。
+      };
+      const settle = (fn) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        fn();
+      };
+      const onEvent = (ev) => {
+        settle(() => {
+          try { resolve(JSON.parse(ev.detail)); } catch (err) { reject(err); }
+        });
+      };
+
+      document.addEventListener(eventName, onEvent);
+      timer = setTimeout(() => settle(() => reject(new Error('mtop: レスポンスタイムアウト'))), RESPONSE_TIMEOUT_MS);
+
+      relayScript.textContent = `window['${callback}']=function(d){`
+        + `document.dispatchEvent(new CustomEvent('${eventName}',{detail:JSON.stringify(d)}));`
+        + `delete window['${callback}'];};`;
+      document.documentElement.appendChild(relayScript);
+
+      jsonpScript.src = url;
+      jsonpScript.onerror = () => settle(() => reject(new Error('mtop: JSONPスクリプトの読込に失敗しました')));
+      document.documentElement.appendChild(jsonpScript);
+    });
+  }
+
+  // productId → storeId 解決の公開API。cache を優先し、無ければ mtop を叩いて cache へ保存する。
+  // TOKEN_EXPIRED/TOKEN_EMPTY は cookie 再発行後に1回だけリトライ。失敗は静かにフォールバックせず throw する。
+  /** @param {string} productId @param {{useCache?: boolean}} [options] @returns {Promise<string>} */
+  async function resolveStoreId(productId, options) {
+    const useCache = !options || options.useCache !== false;
+    if (useCache) {
+      const cached = await CB_STORAGE.getCachedStore(productId);
+      if (cached) return cached;
+    }
+
+    let response = await fetchViaJsonp(productId);
+    if (isTokenError(response)) {
+      response = await fetchViaJsonp(productId);
+    }
+    const storeId = extractStoreId(response);
+    if (useCache) await CB_STORAGE.setCachedStore(productId, storeId);
+    return storeId;
+  }
+
+  return {
+    readToken, buildData, buildUrl, parseJsonp,
+    extractStoreId, isTokenError, fetchViaJsonp, resolveStoreId,
+  };
 })();
