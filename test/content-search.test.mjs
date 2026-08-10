@@ -68,6 +68,7 @@ function loadContentSearch() {
     setTimeout: (fn) => { fn(); return 0; },
     clearTimeout: () => {},
     console,
+    chrome: { runtime: { getURL: (path) => `chrome-extension://test-id/${path}` } },
     CB_STORAGE: {
       getBlockedStores: async () => ({}),
       getCachedStore: async () => null,

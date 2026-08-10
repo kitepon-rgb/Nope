@@ -2,7 +2,8 @@
 // 実証済み: カードは a.search-card-item、href の /item/(\d+)\.html から productId。
 // カード自体にストア情報は無いため productId→storeId は CB_MTOP.resolveStoreId（cache優先）で解決する。
 // 外側ラッパ（[class*="search-item-card-wrapper"] → .card-out-wrapper → parentElement の優先順で探索）を対象に、
-// placeholder モード（既定）では中身を猫あっかんべーSVGのプレースホルダーへ差し替え、
+// placeholder モード（既定）では中身をマスコット画像（assets/mascot-blocked.png、chrome.runtime.getURL経由で
+// 拡張同梱リソースとして参照。web_accessible_resourcesへの登録が必要）を使ったプレースホルダーへ差し替え、
 // collapse モードでは wrapper ごと display:none で完全に消す（displayMode は CB_STORAGE 経由で購読・即時再適用）。
 // mtop への同時リクエストは 2 並列・間隔 300ms に抑える（サーバ負荷/bot対策への配慮）。
 // MutationObserver で無限スクロールと SPA 遷移に追従し、blockedStores/displayMode の onChanged で即時再適用する。
@@ -20,8 +21,21 @@ const CB_SEARCH = (() => {
   const DEFAULT_MODE = 'placeholder';
   const PLACEHOLDER_CLASS = 'cb-blocked-placeholder';
 
-  // オーナー承認済みラフ（禁止マークの後ろから顔を出してあっかんべー）。定数のみを innerHTML に渡す。
-  const CAT_SVG_MARKUP = '<svg viewBox="0 0 160 150" width="120" height="112" role="img" aria-label="ブロック済み"><path d="M62 46 L54 22 L74 34 Z" fill="#F5C4B3" stroke="#993C1D" stroke-width="2.5" stroke-linejoin="round"/><path d="M118 46 L126 22 L106 34 Z" fill="#F5C4B3" stroke="#993C1D" stroke-width="2.5" stroke-linejoin="round"/><ellipse cx="90" cy="62" rx="38" ry="32" fill="#FAECE7" stroke="#993C1D" stroke-width="2.5"/><circle cx="76" cy="56" r="3.5" fill="#4A1B0C"/><path d="M100 52 q6 6 12 0" fill="none" stroke="#4A1B0C" stroke-width="3" stroke-linecap="round"/><path d="M104 60 q4 4 10 2" fill="none" stroke="#D85A30" stroke-width="3" stroke-linecap="round"/><path d="M84 72 q6 5 12 0 q1 12 -6 13 q-7 -1 -6 -13 Z" fill="#ED93B1" stroke="#993556" stroke-width="2" stroke-linejoin="round"/><circle cx="80" cy="95" r="52" fill="none" stroke="#E24B4A" stroke-width="13"/><line x1="45" y1="59" x2="115" y2="131" stroke="#E24B4A" stroke-width="13" stroke-linecap="round"/><ellipse cx="42" cy="82" rx="9" ry="7" fill="#FAECE7" stroke="#993C1D" stroke-width="2.5"/><ellipse cx="120" cy="86" rx="9" ry="7" fill="#FAECE7" stroke="#993C1D" stroke-width="2.5"/></svg>';
+  // オーナー確定のマスコット画像（assets/mascot-source.pngをカード表示サイズへリサイズ済み）。
+  // 拡張同梱リソースを chrome.runtime.getURL() 経由で参照する（外部URL禁止）。
+  const MASCOT_IMAGE_PATH = 'assets/mascot-blocked.png';
+  const MASCOT_DISPLAY_SIZE = 120;
+
+  // kitepon.dev ブランド正典（color-system.md）の適用値。
+  const COLOR_ORANGE = '#ef8d32'; // Discovery Orange: 枠・識別色
+  const COLOR_ORANGE_DEEP = '#a84400'; // Deep Orange: 11px以下のlabel・解除ボタン文字
+  const COLOR_INK = '#111b35'; // Ink: 本文（ストア名）
+  const COLOR_WHITE = '#fffef9'; // White: card背景
+
+  /** @returns {string} 拡張同梱のマスコット画像URL（chrome.runtime.getURL経由） */
+  function getMascotImageUrl() {
+    return chrome.runtime.getURL(MASCOT_IMAGE_PATH);
+  }
 
   // placeholder挿入時に隠した元の子要素のdisplay値を退避しておく（DOM要素へ直接プロパティを生やさない）。
   const originalChildStateByWrapper = new WeakMap();
@@ -69,25 +83,40 @@ const CB_SEARCH = (() => {
     Object.assign(el.style, {
       minHeight: '220px', display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center', padding: '12px', textAlign: 'center',
+      backgroundColor: COLOR_WHITE, border: `1px solid ${COLOR_ORANGE}`,
+      borderRadius: '8px', boxSizing: 'border-box',
     });
 
-    const art = document.createElement('div');
-    art.innerHTML = CAT_SVG_MARKUP; // 定数のみをinnerHTMLへ渡す
+    const art = document.createElement('img');
+    art.src = getMascotImageUrl();
+    art.width = MASCOT_DISPLAY_SIZE;
+    art.height = MASCOT_DISPLAY_SIZE;
+    art.alt = ''; // 情報はlabel/ストア名側で伝えるため装飾画像として扱う
+    art.ariaHidden = 'true';
     el.appendChild(art);
 
     const label = document.createElement('p');
-    label.textContent = 'ブロック済み';
+    label.textContent = 'BLOCKED';
+    Object.assign(label.style, {
+      fontSize: '10px', letterSpacing: '0.14em', color: COLOR_ORANGE_DEEP,
+      margin: '8px 0 0', fontWeight: 'bold',
+    });
     el.appendChild(label);
 
     if (storeName) {
       const nameEl = document.createElement('p');
       nameEl.textContent = storeName; // XSS防止のためtextContentで入れる（innerHTMLに混ぜない）
+      Object.assign(nameEl.style, { color: COLOR_INK, margin: '4px 0 0' });
       el.appendChild(nameEl);
     }
 
     const unblockBtn = document.createElement('button');
     unblockBtn.type = 'button';
     unblockBtn.textContent = 'ブロック解除';
+    Object.assign(unblockBtn.style, {
+      marginTop: '8px', border: `1px solid ${COLOR_ORANGE}`, color: COLOR_ORANGE_DEEP,
+      backgroundColor: 'transparent', borderRadius: '4px', padding: '4px 10px', cursor: 'pointer',
+    });
     unblockBtn.addEventListener('click', (event) => {
       // カード全体が a タグのため、放置すると遷移してしまう。
       if (event) {
