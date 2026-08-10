@@ -15,18 +15,24 @@
   </fieldset>
 
   <section class="cb-section">
-    <p class="cb-label">ADD STORE</p>
-    <form id="add-form">
-      <input type="text" id="add-input" placeholder="ストアURL または ID" required>
-      <input type="text" id="add-name" placeholder="名前（任意）">
-      <button type="submit">追加</button>
-    </form>
-    <p id="status" class="cb-status"></p>
+    <p class="cb-label">BLOCKED</p>
+    <div id="blocked-list"></div>
   </section>
 
   <section class="cb-section">
-    <p class="cb-label">BLOCKED</p>
-    <ul id="store-list"></ul>
+    <p class="cb-label">KEYWORD BLOCK</p>
+    <div class="cb-keyword-header">
+      <select id="keyword-site">
+        <option value="yahoo_news">Yahoo ニュース</option>
+        <option value="yahoo_japan">Yahoo! JAPAN</option>
+      </select>
+    </div>
+    <form id="keyword-form" class="cb-keyword-form">
+      <input type="text" id="keyword-input" placeholder="キーワード" required>
+      <button type="submit">追加</button>
+    </form>
+    <p id="keyword-status" class="cb-status"></p>
+    <ul id="keyword-list" class="cb-keyword-list"></ul>
   </section>
 
   <button type="button" id="clear-cache">キャッシュクリア</button>

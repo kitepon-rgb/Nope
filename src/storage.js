@@ -61,6 +61,50 @@ const CB_STORAGE = (() => {
     await chrome.storage.local.remove('itemSourceCache');
   }
 
+  // すべてのサイトのブロックリストを一括取得する（popup のサイト別描画用）。
+  async function getAllBlockedSources() {
+    const { blockedSources } = await chrome.storage.sync.get({ blockedSources: {} });
+    return blockedSources;
+  }
+
+  // キーワードブロック（yahoo_news / yahoo_japan 対象）。
+  // chrome.storage.sync に blockedKeywords.{siteKey}: string[] で保存する。
+  async function getBlockedKeywords(siteKey) {
+    const { blockedKeywords } = await chrome.storage.sync.get({ blockedKeywords: {} });
+    return blockedKeywords[siteKey] ?? [];
+  }
+
+  async function addBlockedKeyword(siteKey, keyword) {
+    const trimmed = String(keyword).trim();
+    if (!trimmed) return getBlockedKeywords(siteKey);
+    const { blockedKeywords } = await chrome.storage.sync.get({ blockedKeywords: {} });
+    if (!blockedKeywords[siteKey]) blockedKeywords[siteKey] = [];
+    if (blockedKeywords[siteKey].includes(trimmed)) return blockedKeywords[siteKey];
+    blockedKeywords[siteKey].push(trimmed);
+    await chrome.storage.sync.set({ blockedKeywords });
+    return blockedKeywords[siteKey];
+  }
+
+  async function removeBlockedKeyword(siteKey, keyword) {
+    const { blockedKeywords } = await chrome.storage.sync.get({ blockedKeywords: {} });
+    if (blockedKeywords[siteKey]) {
+      blockedKeywords[siteKey] = blockedKeywords[siteKey].filter((k) => k !== keyword);
+    }
+    await chrome.storage.sync.set({ blockedKeywords });
+    return blockedKeywords[siteKey] ?? [];
+  }
+
+  function onBlockedKeywordsChanged(siteKey, listener) {
+    const wrapped = (changes, area) => {
+      if (area !== 'sync' || !changes.blockedKeywords) return;
+      const oldSite = changes.blockedKeywords.oldValue?.[siteKey] ?? [];
+      const newSite = changes.blockedKeywords.newValue?.[siteKey] ?? [];
+      if (JSON.stringify(oldSite) !== JSON.stringify(newSite)) listener(newSite);
+    };
+    chrome.storage.onChanged.addListener(wrapped);
+    return () => chrome.storage.onChanged.removeListener(wrapped);
+  }
+
   // blockedSources[siteKey] の変更を購読する（検索ページの即時再適用用）。解除関数を返す。
   // 対象 siteKey のエントリが変化した時だけリスナーを呼ぶ（他サイトの変更では発火しない）。
   function onBlockedSourcesChanged(siteKey, listener) {
@@ -95,8 +139,9 @@ const CB_STORAGE = (() => {
   }
 
   return {
-    getBlockedSources, addBlockedSource, removeBlockedSource,
+    getBlockedSources, addBlockedSource, removeBlockedSource, getAllBlockedSources,
     getCachedSource, setCachedSource, clearCache, onBlockedSourcesChanged,
+    getBlockedKeywords, addBlockedKeyword, removeBlockedKeyword, onBlockedKeywordsChanged,
     getDisplayMode, setDisplayMode, onDisplayModeChanged,
   };
 })();

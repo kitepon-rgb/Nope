@@ -170,3 +170,98 @@ test('onDisplayModeChangedはsync変更で発火し解除関数で止まる', as
   await storage.setDisplayMode('placeholder');
   assert.equal(seen.length, 1);
 });
+
+// vm realm 越しの配列は Array.prototype が異なり deepStrictEqual が失敗するため、
+// Array.from で変換してから比較する（オブジェクトの Object.keys 変換と同じ理由）。
+test('getBlockedKeywordsは未設定時に空配列を返す', async () => {
+  const storage = loadStorage(chromeMock());
+  assert.deepEqual(Array.from(await storage.getBlockedKeywords('yahoo_news')), []);
+});
+
+test('addBlockedKeywordで追加したキーワードをgetBlockedKeywordsが返す', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.addBlockedKeyword('yahoo_news', 'フェイクニュース');
+  await storage.addBlockedKeyword('yahoo_news', 'PR');
+  const keywords = Array.from(await storage.getBlockedKeywords('yahoo_news'));
+  assert.deepEqual(keywords, ['フェイクニュース', 'PR']);
+});
+
+test('addBlockedKeywordは重複を無視する', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.addBlockedKeyword('yahoo_news', 'PR');
+  await storage.addBlockedKeyword('yahoo_news', 'PR');
+  assert.equal((await storage.getBlockedKeywords('yahoo_news')).length, 1);
+});
+
+test('addBlockedKeywordはトリミングして保存する', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.addBlockedKeyword('yahoo_news', '  広告  ');
+  assert.deepEqual(Array.from(await storage.getBlockedKeywords('yahoo_news')), ['広告']);
+});
+
+test('addBlockedKeywordは空文字列を無視する', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.addBlockedKeyword('yahoo_news', '   ');
+  assert.deepEqual(Array.from(await storage.getBlockedKeywords('yahoo_news')), []);
+});
+
+test('removeBlockedKeywordで指定キーワードを削除できる', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.addBlockedKeyword('yahoo_japan', 'キーワードA');
+  await storage.addBlockedKeyword('yahoo_japan', 'キーワードB');
+  await storage.removeBlockedKeyword('yahoo_japan', 'キーワードA');
+  assert.deepEqual(Array.from(await storage.getBlockedKeywords('yahoo_japan')), ['キーワードB']);
+});
+
+test('removeBlockedKeywordは存在しないキーワードを渡してもエラーにならない', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.removeBlockedKeyword('yahoo_news', '存在しない');
+  assert.deepEqual(Array.from(await storage.getBlockedKeywords('yahoo_news')), []);
+});
+
+test('getBlockedKeywordsはsiteKeyごとに独立して管理される', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.addBlockedKeyword('yahoo_news', 'ニュースワード');
+  await storage.addBlockedKeyword('yahoo_japan', 'JAPANワード');
+  assert.deepEqual(Array.from(await storage.getBlockedKeywords('yahoo_news')), ['ニュースワード']);
+  assert.deepEqual(Array.from(await storage.getBlockedKeywords('yahoo_japan')), ['JAPANワード']);
+});
+
+test('onBlockedKeywordsChangedは対象siteKeyのキーワード変更で発火する', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  const seen = [];
+  const unsubscribe = storage.onBlockedKeywordsChanged('yahoo_news', (value) => seen.push(Array.from(value)));
+  await storage.addBlockedKeyword('yahoo_news', 'テスト');
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0], ['テスト']);
+  unsubscribe();
+  await storage.addBlockedKeyword('yahoo_news', 'テスト2');
+  assert.equal(seen.length, 1);
+});
+
+test('onBlockedKeywordsChangedは対象外siteKeyの変更で発火しない', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  const seen = [];
+  storage.onBlockedKeywordsChanged('yahoo_news', (value) => seen.push(value));
+  await storage.addBlockedKeyword('yahoo_japan', '別サイト');
+  assert.equal(seen.length, 0);
+});
+
+test('getAllBlockedSourcesは全サイトのblockedSourcesを返す', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.addBlockedSource('aliexpress', '111', 'AliStore');
+  await storage.addBlockedSource('rakuten', 'shopA', '楽天店A');
+  const all = await storage.getAllBlockedSources();
+  assert.equal(all.aliexpress['111'].name, 'AliStore');
+  assert.equal(all.rakuten['shopA'].name, '楽天店A');
+});

@@ -60,23 +60,128 @@ h1 {
   color: var(--orange-deep);
 }
 
-#add-form {
+/* BLOCKED section — site-grouped list */
+
+#blocked-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.cb-site-group {
+  margin-bottom: 6px;
+}
+
+.cb-site-group:last-child {
+  margin-bottom: 0;
+}
+
+.cb-site-header {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background: var(--orange-soft);
+  border-radius: 4px 4px 0 0;
+  font-family: Manrope, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--orange-deep);
+}
+
+.cb-site-count {
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.cb-site-entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--white);
+  border-radius: 0 0 4px 4px;
+}
+
+.cb-source-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-left: 3px solid var(--orange);
+  border-bottom: 1px solid var(--orange-soft);
+}
+
+.cb-source-row:last-child {
+  border-bottom: none;
+}
+
+.cb-source-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.cb-name-badge {
+  flex-shrink: 0;
+  display: inline-block;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--orange-soft);
+  border: 1px solid var(--orange);
+  font-size: 10px;
+  color: var(--orange-deep);
+  cursor: help;
+  white-space: nowrap;
+}
+
+.cb-source-row button {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--orange-deep);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--orange-deep);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cb-empty {
+  padding: 8px;
+  color: var(--ink);
+  opacity: 0.6;
+  margin: 0;
+  background: var(--white);
+  border-radius: 4px;
+}
+
+/* KEYWORD BLOCK section */
+
+.cb-keyword-header {
+  margin-bottom: 4px;
+}
+
+.cb-keyword-header select {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--orange-soft);
+  border-radius: 4px;
+  background: var(--white);
+  color: var(--ink);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.cb-keyword-form {
+  display: flex;
   gap: 4px;
   margin-bottom: 4px;
 }
 
-#add-input {
-  flex: 2 1 auto;
-}
-
-#add-name {
+.cb-keyword-form input[type="text"] {
   flex: 1 1 auto;
-}
-
-#add-input,
-#add-name {
   padding: 4px 6px;
   border: 1px solid var(--orange-soft);
   border-radius: 4px;
@@ -85,16 +190,18 @@ h1 {
   font-size: 13px;
 }
 
-#add-form button[type="submit"] {
+.cb-keyword-form button[type="submit"] {
   padding: 4px 12px;
   border: none;
   border-radius: 4px;
   background: var(--orange-strong);
   color: var(--white);
+  font-size: 13px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-#add-form button[type="submit"]:hover {
+.cb-keyword-form button[type="submit"]:hover {
   background: var(--orange-deep);
 }
 
@@ -105,17 +212,17 @@ h1 {
   font-size: 12px;
 }
 
-#store-list {
+.cb-keyword-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 240px;
-  overflow-y: auto;
   background: var(--white);
   border-radius: 4px;
+  max-height: 120px;
+  overflow-y: auto;
 }
 
-.cb-store-row {
+.cb-keyword-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -123,13 +230,14 @@ h1 {
   padding: 4px 8px;
   border-left: 3px solid var(--orange);
   border-bottom: 1px solid var(--orange-soft);
+  font-size: 12px;
 }
 
-.cb-store-row:last-child {
+.cb-keyword-row:last-child {
   border-bottom: none;
 }
 
-.cb-store-label {
+.cb-keyword-text {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -137,30 +245,35 @@ h1 {
   white-space: nowrap;
 }
 
-.cb-store-row button {
+.cb-keyword-row button {
   flex: 0 0 auto;
   padding: 2px 8px;
   border: 1px solid var(--orange-deep);
   border-radius: 4px;
   background: transparent;
   color: var(--orange-deep);
+  font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
 }
 
-.cb-empty {
+.cb-keyword-empty {
   padding: 8px;
   color: var(--ink);
   opacity: 0.6;
+  margin: 0;
 }
 
+/* Bottom controls */
+
 #clear-cache {
-  margin-top: 8px;
+  margin-top: 4px;
   padding: 4px 10px;
   border: 1px solid var(--orange-deep);
   border-radius: 4px;
   background: var(--white);
   color: var(--orange-deep);
+  font-size: 12px;
   cursor: pointer;
 }
 

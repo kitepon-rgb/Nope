@@ -1,4 +1,4 @@
-// popup.js の純粋ロジック（入力パース・並び替え）を検証する。
+// popup.js の純粋ロジック（並び替え・サイトグルーピング・キーワードリスト）を検証する。
 // 実際のDOM描画・拡張ロードはブラウザ実測停止指示により保留（CLAUDE.md参照）。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -12,10 +12,13 @@ function makeFakeElement() {
   const listeners = {};
   const el = {
     textContent: '',
+    title: '',
+    className: '',
+    type: '',
     children: [],
     append(...items) { el.children.push(...items); },
     addEventListener(type, handler) { listeners[type] = handler; },
-    fireClick() { return listeners.click(); },
+    fireClick() { return listeners.click?.(); },
   };
   return el;
 }
@@ -26,18 +29,37 @@ function makeFakeListEl() {
   return el;
 }
 
-function makeFakeStorage(initialBlocked) {
-  const sites = { aliexpress: { ...initialBlocked } };
+function makeFakeStorage(initialBlocked = {}, initialKeywords = {}) {
+  const blocked = { ...initialBlocked };
+  const keywords = { ...initialKeywords };
   return {
-    async getBlockedSources(siteKey) { return { ...sites[siteKey] }; },
-    async addBlockedSource(siteKey, sourceId, name) {
-      if (!sites[siteKey]) sites[siteKey] = {};
-      sites[siteKey][sourceId] = { name, addedAt: 0 };
+    async getAllBlockedSources() {
+      const out = {};
+      for (const [k, v] of Object.entries(blocked)) out[k] = { ...v };
+      return out;
     },
-    async removeBlockedSource(siteKey, sourceId) { if (sites[siteKey]) delete sites[siteKey][sourceId]; },
+    async getBlockedSources(siteKey) { return { ...(blocked[siteKey] ?? {}) }; },
+    async addBlockedSource(siteKey, sourceId, name) {
+      if (!blocked[siteKey]) blocked[siteKey] = {};
+      blocked[siteKey][sourceId] = { name, addedAt: 0 };
+    },
+    async removeBlockedSource(siteKey, sourceId) {
+      if (blocked[siteKey]) delete blocked[siteKey][sourceId];
+    },
+    async getBlockedKeywords(siteKey) { return [...(keywords[siteKey] ?? [])]; },
+    async addBlockedKeyword(siteKey, keyword) {
+      if (!keywords[siteKey]) keywords[siteKey] = [];
+      if (!keywords[siteKey].includes(keyword)) keywords[siteKey].push(keyword);
+      return keywords[siteKey];
+    },
+    async removeBlockedKeyword(siteKey, keyword) {
+      if (keywords[siteKey]) keywords[siteKey] = keywords[siteKey].filter((k) => k !== keyword);
+      return keywords[siteKey] ?? [];
+    },
     async getDisplayMode() { return 'placeholder'; },
     async setDisplayMode() {},
-    _getSite(siteKey) { return { ...sites[siteKey] }; },
+    _blocked: blocked,
+    _keywords: keywords,
   };
 }
 
@@ -48,37 +70,24 @@ function loadPopup(storage) {
       createElement: () => makeFakeElement(),
       querySelectorAll: () => [],
     },
-    CB_STORAGE: storage ?? { getBlockedSources: async () => ({}), getDisplayMode: async () => 'placeholder' },
+    CB_STORAGE: storage ?? {
+      getAllBlockedSources: async () => ({}),
+      getBlockedKeywords: async () => [],
+      getDisplayMode: async () => 'placeholder',
+    },
   });
   vm.runInContext(readFileSync(SRC, 'utf8'), context);
   return vm.runInContext('CB_POPUP', context);
 }
 
-test('parseStoreInputはストアURLから数値IDを取り出す', () => {
-  const popup = loadPopup();
-  assert.equal(popup.parseStoreInput('https://ja.aliexpress.com/store/1100223114'), '1100223114');
-  assert.equal(popup.parseStoreInput('//ja.aliexpress.com/store/1100223114?spm=x'), '1100223114');
-});
-
-test('parseStoreInputは数値IDのみの入力もそのまま受け付ける', () => {
-  const popup = loadPopup();
-  assert.equal(popup.parseStoreInput('  1100223114  '), '1100223114');
-});
-
-test('parseStoreInputはIDを含まない入力にnullを返す', () => {
-  const popup = loadPopup();
-  assert.equal(popup.parseStoreInput('not a store'), null);
-  assert.equal(popup.parseStoreInput(''), null);
-});
-
 test('sortEntriesはaddedAt降順に並べる', () => {
   const popup = loadPopup();
-  const blocked = {
+  const entries = {
     100: { name: 'old', addedAt: 1000 },
     200: { name: 'new', addedAt: 3000 },
     300: { name: 'mid', addedAt: 2000 },
   };
-  const sorted = popup.sortEntries(blocked);
+  const sorted = popup.sortEntries(entries);
   assert.deepEqual(Array.from(sorted, ([id]) => id), ['200', '300', '100']);
 });
 
@@ -89,35 +98,85 @@ test('formatDateは文字列を返す', () => {
   assert.ok(formatted.length > 0);
 });
 
-test('renderListは空なら「ブロック中のストアはありません」を表示する', async () => {
+test('SITE_LABELSにaliexpressとyoutube等の主要サイトが含まれる', () => {
+  const popup = loadPopup();
+  assert.equal(popup.SITE_LABELS.aliexpress, 'AliExpress');
+  assert.equal(popup.SITE_LABELS.youtube, 'YouTube');
+  assert.equal(popup.SITE_LABELS.yahoo_news, 'Yahoo ニュース');
+  assert.equal(popup.SITE_LABELS.yahoo_japan, 'Yahoo! JAPAN');
+});
+
+test('renderBlockedListはブロック中の発信元がない時に空メッセージを出す', async () => {
   const popup = loadPopup(makeFakeStorage({}));
-  const listEl = makeFakeListEl();
-  await popup.renderList(listEl);
-  assert.equal(listEl.children.length, 1);
-  assert.equal(listEl.children[0].textContent, 'ブロック中のストアはありません');
+  const containerEl = makeFakeListEl();
+  await popup.renderBlockedList(containerEl);
+  assert.equal(containerEl.children.length, 1);
+  assert.ok(containerEl.children[0].textContent.includes('ブロック中の発信元はありません'));
 });
 
-test('renderListはaddedAt降順で行を描画する', async () => {
-  const popup = loadPopup(makeFakeStorage({
-    100: { name: 'Old Store', addedAt: 1000 },
-    200: { name: 'New Store', addedAt: 3000 },
-  }));
-  const listEl = makeFakeListEl();
-  await popup.renderList(listEl);
-  assert.equal(listEl.children.length, 2);
-  assert.ok(listEl.children[0].children[0].textContent.includes('New Store'));
-  assert.ok(listEl.children[1].children[0].textContent.includes('Old Store'));
+test('renderBlockedListはサイト別グループを描画する', async () => {
+  const storage = makeFakeStorage({
+    aliexpress: { '111': { name: 'AliStore', addedAt: 1000 } },
+    rakuten: { 'shopA': { name: '楽天店A', addedAt: 2000 } },
+  });
+  const popup = loadPopup(storage);
+  const containerEl = makeFakeListEl();
+  await popup.renderBlockedList(containerEl);
+  // 2サイト分のグループが生成される
+  assert.equal(containerEl.children.length, 2);
 });
 
-test('renderListの削除ボタンでstoreを消して再描画する', async () => {
-  const storage = makeFakeStorage({ 100: { name: 'Store A', addedAt: 1000 } });
+test('renderBlockedListはエントリが0のサイトを表示しない', async () => {
+  const storage = makeFakeStorage({
+    aliexpress: { '111': { name: 'AliStore', addedAt: 1000 } },
+    rakuten: {},
+  });
+  const popup = loadPopup(storage);
+  const containerEl = makeFakeListEl();
+  await popup.renderBlockedList(containerEl);
+  assert.equal(containerEl.children.length, 1);
+});
+
+test('renderSourceRowはnameOnlyエントリに⚠ 名前マッチバッジを付ける', () => {
+  const popup = loadPopup();
+  const row = popup.renderSourceRow(
+    '西スポWEB OTTO!',
+    { name: '西スポWEB OTTO!', addedAt: 1000, nameOnly: true },
+    async () => {}
+  );
+  const hasBadge = row.children.some((child) => child.textContent?.includes('名前マッチ'));
+  assert.ok(hasBadge, '名前マッチバッジが見つからない');
+});
+
+test('renderSourceRowはIDベースエントリにバッジを付けない', () => {
+  const popup = loadPopup();
+  const row = popup.renderSourceRow(
+    'aidort',
+    { name: '愛度楽天市場店', addedAt: 1000 },
+    async () => {}
+  );
+  const hasBadge = row.children.some((child) => child.textContent?.includes('名前マッチ'));
+  assert.ok(!hasBadge, 'IDベースエントリにバッジが付いている');
+});
+
+test('renderKeywordListはキーワードがない時に空メッセージを出す', async () => {
+  const storage = makeFakeStorage({}, {});
   const popup = loadPopup(storage);
   const listEl = makeFakeListEl();
-  await popup.renderList(listEl);
-  const removeBtn = listEl.children[0].children[1];
-  await removeBtn.fireClick();
-  assert.deepEqual(storage._getSite('aliexpress'), {});
-  assert.equal(listEl.children[0].textContent, 'ブロック中のストアはありません');
+  await popup.renderKeywordList(listEl, 'yahoo_news');
+  assert.equal(listEl.children.length, 1);
+  assert.ok(listEl.children[0].textContent.includes('キーワードは登録されていません'));
+});
+
+test('renderKeywordListはキーワードの一覧を描画する', async () => {
+  const storage = makeFakeStorage({}, { yahoo_news: ['フェイクニュース', 'PR'] });
+  const popup = loadPopup(storage);
+  const listEl = makeFakeListEl();
+  await popup.renderKeywordList(listEl, 'yahoo_news');
+  assert.equal(listEl.children.length, 2);
+  const texts = listEl.children.map((li) => li.children[0]?.textContent);
+  assert.ok(texts.includes('フェイクニュース'));
+  assert.ok(texts.includes('PR'));
 });
 
 function makeFakeRadio(value) {
@@ -156,7 +215,6 @@ test('bindDisplayModeControlはcheckedでないラジオのchangeではsetDispla
   const radios = [makeFakeRadio('placeholder'), makeFakeRadio('collapse')];
   const storage = { getDisplayMode: async () => 'placeholder', setDisplayMode: async () => { called = true; } };
   await popup.bindDisplayModeControl(radios, storage);
-  // radios[1]はcheckedのままfalse（ユーザーが選んでいない想定）でイベントだけ発火。
   await radios[1].fireChange();
   assert.equal(called, false);
 });
