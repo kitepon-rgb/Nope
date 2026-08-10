@@ -1,0 +1,65 @@
+body {
+  width: 320px;
+  margin: 0;
+  padding: 12px;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+}
+
+h1 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+
+#add-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+#add-input {
+  flex: 2 1 auto;
+}
+
+#add-name {
+  flex: 1 1 auto;
+}
+
+.cb-status {
+  min-height: 1em;
+  margin: 4px 0;
+  color: #c62828;
+}
+
+#store-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.cb-store-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.cb-store-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cb-empty {
+  color: #888;
+  padding: 8px 0;
+}
+
+#clear-cache {
+  margin-top: 8px;
+}

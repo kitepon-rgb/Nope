@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>ChromeBlocker</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>ChromeBlocker</h1>
+
+  <form id="add-form">
+    <input type="text" id="add-input" placeholder="ストアURL または ID" required>
+    <input type="text" id="add-name" placeholder="名前（任意）">
+    <button type="submit">追加</button>
+  </form>
+  <p id="status" class="cb-status"></p>
+
+  <ul id="store-list"></ul>
+
+  <button type="button" id="clear-cache">キャッシュクリア</button>
+
+  <script src="../src/storage.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
