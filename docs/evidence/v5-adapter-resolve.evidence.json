@@ -1,0 +1,43 @@
+{
+  "task": "v5-adapter-resolve",
+  "worker": "sumire",
+  "date": "2026-08-11",
+  "summary": "Yahoo Auction・Amazon の Pattern C（async_resolve）アダプタを実装。",
+  "deliverables": [
+    "src/adapters/yahoo_auction.js",
+    "src/adapters/amazon.js",
+    "test/adapters/yahoo_auction.test.mjs",
+    "test/adapters/amazon.test.mjs"
+  ],
+  "fetch_validation": {
+    "yahoo_auction": {
+      "method": "agent-browser fetch（SSR 確認）",
+      "result": "詳細ページ https://auctions.yahoo.co.jp/jp/auction/{id} が fetch() で HTML を返す。/seller/{id} href が SSR HTML に含まれる。CORS・bot対策なし（同一オリジン）。",
+      "example": { "auctionId": "q1240291994", "sellerId": "DFvUrXQ8JX9MobKNnv8hnSWJXVbzj", "sellerName": "goanshinkudasai" }
+    },
+    "amazon": {
+      "method": "agent-browser fetch（SSR/CSR 混在確認）",
+      "result": "詳細ページ https://www.amazon.co.jp/dp/{asin} の静的 HTML に &amp;seller={id} と id='sellerProfileTriggerId' アンカーが含まれる（SSR コンポーネント）。CORS・bot対策なし（同一オリジン）。",
+      "example": { "asin": "B0CT857V89", "sellerId": "A3EMK34PT3V85P", "sellerName": "HK-JIMI" }
+    }
+  },
+  "test_results": {
+    "command": "node --test test/*.test.mjs test/adapters/*.test.mjs",
+    "total": 165,
+    "pass": 165,
+    "fail": 0,
+    "yahoo_auction_tests": 11,
+    "amazon_tests": 12
+  },
+  "design_notes": {
+    "pattern": "async_resolve（Pattern C）",
+    "concurrency": "content-search.js の createResolveQueue（並列2・間隔300ms）を利用",
+    "error_handling": "fetch失敗・HTTPエラー・seller不在はすべて throw（フォールバック禁止）。console.warn はエンジン側（content-search.js）に委任"
+  },
+  "finding": {
+    "severity": "medium",
+    "title": "二重起動の設計問題（v5 は既存問題を踏襲）",
+    "detail": "content-search.js 307行目の CB_SEARCH.init().start() が AliExpress アダプタを全サイトで起動する。manifest.json は各サイトに content-search.js + 各アダプタを読み込む構成のため、他サイトでも AliExpress エンジンが不要な MutationObserver を走らせる。v5 の yahoo_auction.js・amazon.js も同じパターンを採用（rakuten.js と同一）。manifest.json に yahoo_auction・amazon のエントリが未追加のため現時点では実害なし。修正は tsumugi が設計した content-search.js の自動起動削除 + src/adapters/aliexpress.js 新設で対応可能。",
+    "action": "room で shiho・tsumugi へ報告済み"
+  }
+}
