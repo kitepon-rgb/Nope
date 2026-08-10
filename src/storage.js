@@ -1,6 +1,6 @@
 // Nope — ストレージ層。
 // blocklist は端末間で同期したいので chrome.storage.sync、
-// productId→storeId の解決キャッシュは容量が大きく端末固有でよいので chrome.storage.local に置く。
+// itemId→sourceId の解決キャッシュは容量が大きく端末固有でよいので chrome.storage.local に置く。
 // content script 群から <script> 連結で読み込まれる前提のグローバル公開（ビルド工程なし・MV3 content_scripts）。
 
 'use strict';
@@ -17,50 +17,58 @@ const CB_STORAGE = (() => {
     return DEFAULT_DISPLAY_MODE;
   }
 
-  async function getBlockedStores() {
-    const { blockedStores } = await chrome.storage.sync.get({ blockedStores: {} });
-    return blockedStores;
+  async function getBlockedSources(siteKey) {
+    const { blockedSources } = await chrome.storage.sync.get({ blockedSources: {} });
+    return blockedSources[siteKey] ?? {};
   }
 
-  async function addBlockedStore(storeId, name) {
-    if (!/^\d+$/.test(String(storeId))) throw new Error(`storeId が数値ではありません: ${storeId}`);
-    const blockedStores = await getBlockedStores();
-    blockedStores[storeId] = { name: String(name || `store:${storeId}`), addedAt: Date.now() };
-    await chrome.storage.sync.set({ blockedStores });
-    return blockedStores;
+  async function addBlockedSource(siteKey, sourceId, name, nameOnly) {
+    const { blockedSources } = await chrome.storage.sync.get({ blockedSources: {} });
+    if (!blockedSources[siteKey]) blockedSources[siteKey] = {};
+    const entry = { name: String(name || `source:${sourceId}`), addedAt: Date.now() };
+    if (nameOnly) entry.nameOnly = true;
+    blockedSources[siteKey][sourceId] = entry;
+    await chrome.storage.sync.set({ blockedSources });
+    return blockedSources[siteKey];
   }
 
-  async function removeBlockedStore(storeId) {
-    const blockedStores = await getBlockedStores();
-    delete blockedStores[storeId];
-    await chrome.storage.sync.set({ blockedStores });
-    return blockedStores;
-  }
-
-  async function getCachedStore(productId) {
-    const { productStoreCache } = await chrome.storage.local.get({ productStoreCache: {} });
-    return productStoreCache[productId] ?? null;
-  }
-
-  async function setCachedStore(productId, storeId) {
-    const { productStoreCache } = await chrome.storage.local.get({ productStoreCache: {} });
-    productStoreCache[productId] = storeId;
-    // 挿入順 = Object.keys 順を利用して古いものから削る。
-    const keys = Object.keys(productStoreCache);
-    if (keys.length > CACHE_LIMIT) {
-      for (const key of keys.slice(0, keys.length - CACHE_LIMIT)) delete productStoreCache[key];
+  async function removeBlockedSource(siteKey, sourceId) {
+    const { blockedSources } = await chrome.storage.sync.get({ blockedSources: {} });
+    if (blockedSources[siteKey]) {
+      delete blockedSources[siteKey][sourceId];
     }
-    await chrome.storage.local.set({ productStoreCache });
+    await chrome.storage.sync.set({ blockedSources });
+    return blockedSources[siteKey] ?? {};
+  }
+
+  async function getCachedSource(siteKey, itemId) {
+    const { itemSourceCache } = await chrome.storage.local.get({ itemSourceCache: {} });
+    return itemSourceCache[`${siteKey}:${itemId}`] ?? null;
+  }
+
+  async function setCachedSource(siteKey, itemId, sourceId) {
+    const { itemSourceCache } = await chrome.storage.local.get({ itemSourceCache: {} });
+    itemSourceCache[`${siteKey}:${itemId}`] = sourceId;
+    // 挿入順 = Object.keys 順を利用して古いものから削る。
+    const keys = Object.keys(itemSourceCache);
+    if (keys.length > CACHE_LIMIT) {
+      for (const key of keys.slice(0, keys.length - CACHE_LIMIT)) delete itemSourceCache[key];
+    }
+    await chrome.storage.local.set({ itemSourceCache });
   }
 
   async function clearCache() {
-    await chrome.storage.local.remove('productStoreCache');
+    await chrome.storage.local.remove('itemSourceCache');
   }
 
-  // blockedStores の変更を購読する（検索ページの即時再適用用）。解除関数を返す。
-  function onBlockedStoresChanged(listener) {
+  // blockedSources[siteKey] の変更を購読する（検索ページの即時再適用用）。解除関数を返す。
+  // 対象 siteKey のエントリが変化した時だけリスナーを呼ぶ（他サイトの変更では発火しない）。
+  function onBlockedSourcesChanged(siteKey, listener) {
     const wrapped = (changes, area) => {
-      if (area === 'sync' && changes.blockedStores) listener(changes.blockedStores.newValue ?? {});
+      if (area !== 'sync' || !changes.blockedSources) return;
+      const oldSite = changes.blockedSources.oldValue?.[siteKey];
+      const newSite = changes.blockedSources.newValue?.[siteKey] ?? {};
+      if (JSON.stringify(oldSite ?? {}) !== JSON.stringify(newSite)) listener(newSite);
     };
     chrome.storage.onChanged.addListener(wrapped);
     return () => chrome.storage.onChanged.removeListener(wrapped);
@@ -87,8 +95,8 @@ const CB_STORAGE = (() => {
   }
 
   return {
-    getBlockedStores, addBlockedStore, removeBlockedStore,
-    getCachedStore, setCachedStore, clearCache, onBlockedStoresChanged,
+    getBlockedSources, addBlockedSource, removeBlockedSource,
+    getCachedSource, setCachedSource, clearCache, onBlockedSourcesChanged,
     getDisplayMode, setDisplayMode, onDisplayModeChanged,
   };
 })();

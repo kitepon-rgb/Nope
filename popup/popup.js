@@ -41,7 +41,7 @@ const CB_POPUP = (() => {
   }
 
   async function renderList(listEl) {
-    const blocked = await CB_STORAGE.getBlockedStores();
+    const blocked = await CB_STORAGE.getBlockedSources('aliexpress');
     const entries = sortEntries(blocked);
     listEl.replaceChildren();
     if (entries.length === 0) {
@@ -53,7 +53,7 @@ const CB_POPUP = (() => {
     }
     for (const [storeId, info] of entries) {
       listEl.append(renderRow(storeId, info, async (id) => {
-        await CB_STORAGE.removeBlockedStore(id);
+        await CB_STORAGE.removeBlockedSource('aliexpress', id);
         await renderList(listEl);
       }));
     }
@@ -86,7 +86,7 @@ const CB_POPUP = (() => {
         statusEl.textContent = 'ストアURLまたは数値IDを入力してください';
         return;
       }
-      await CB_STORAGE.addBlockedStore(storeId, nameInput.value);
+      await CB_STORAGE.addBlockedSource('aliexpress', storeId, nameInput.value);
       input.value = '';
       nameInput.value = '';
       statusEl.textContent = '';

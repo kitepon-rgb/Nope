@@ -19,13 +19,15 @@ function chromeMock() {
       return out;
     },
     async set(values) {
-      Object.assign(areas[name], values);
       if (name === 'sync') {
         const changes = {};
-        for (const key of Object.keys(values)) changes[key] = { newValue: values[key] };
+        for (const key of Object.keys(values)) changes[key] = { oldValue: areas[name][key], newValue: values[key] };
+        Object.assign(areas[name], values);
         if (Object.keys(changes).length) {
           for (const listener of listeners) listener(changes, 'sync');
         }
+      } else {
+        Object.assign(areas[name], values);
       }
     },
     async remove(key) { delete areas[name][key]; },
@@ -53,48 +55,86 @@ function loadStorage(mock) {
   return vm.runInContext('CB_STORAGE', context);
 }
 
-test('blocklistはsyncへ{storeId:{name,addedAt}}で保存し追加・削除できる', async () => {
+test('blocklistはsyncへblockedSources[siteKey][sourceId]で保存し追加・削除できる', async () => {
   const mock = chromeMock();
   const storage = loadStorage(mock);
-  await storage.addBlockedStore('12345', 'Store A');
-  const stored = mock.areas.sync.blockedStores;
-  assert.equal(stored['12345'].name, 'Store A');
-  assert.equal(typeof stored['12345'].addedAt, 'number');
-  await storage.removeBlockedStore('12345');
+  await storage.addBlockedSource('aliexpress', '12345', 'Store A');
+  const stored = mock.areas.sync.blockedSources;
+  assert.equal(stored.aliexpress['12345'].name, 'Store A');
+  assert.equal(typeof stored.aliexpress['12345'].addedAt, 'number');
+  await storage.removeBlockedSource('aliexpress', '12345');
   // vm realm越しのobjectはprototypeが異なりdeepStrictEqualが使えないため、キーで比較する。
-  assert.deepEqual(Object.keys(await storage.getBlockedStores()), []);
+  assert.deepEqual(Object.keys(await storage.getBlockedSources('aliexpress')), []);
 });
 
-test('数値でないstoreIdは拒否する', async () => {
-  const storage = loadStorage(chromeMock());
-  await assert.rejects(() => storage.addBlockedStore('abc', 'x'), /storeId/u);
+test('sourceIdは文字列制限なし（storeId数値制限は廃止）', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.addBlockedSource('youtube', '@MagicClub686', 'Magic Club');
+  assert.equal((await storage.getBlockedSources('youtube'))['@MagicClub686'].name, 'Magic Club');
 });
 
-test('cacheはlocalへ保存し上限5000超過で挿入順の古いものから削る', async () => {
+test('nameOnly:trueエントリを保存できる', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.addBlockedSource('yahoo_news', '西スポWEB OTTO!', '西スポWEB OTTO!', true);
+  const entry = (await storage.getBlockedSources('yahoo_news'))['西スポWEB OTTO!'];
+  assert.equal(entry.nameOnly, true);
+});
+
+test('siteKeyを分けてblocklistを管理できる', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.addBlockedSource('aliexpress', '111', 'AliStore');
+  await storage.addBlockedSource('rakuten', 'shopA', '楽天店A');
+  assert.deepEqual(Object.keys(await storage.getBlockedSources('aliexpress')), ['111']);
+  assert.deepEqual(Object.keys(await storage.getBlockedSources('rakuten')), ['shopA']);
+  assert.deepEqual(Object.keys(await storage.getBlockedSources('amazon')), []);
+});
+
+test('cacheはlocalへ{siteKey}:{itemId}で保存し上限5000超過で挿入順の古いものから削る', async () => {
   const mock = chromeMock();
   const storage = loadStorage(mock);
   for (let index = 0; index < 5001; index += 1) {
-    await storage.setCachedStore(`p${index}`, `s${index}`);
+    await storage.setCachedSource('aliexpress', `p${index}`, `s${index}`);
   }
-  const cache = mock.areas.local.productStoreCache;
+  const cache = mock.areas.local.itemSourceCache;
   assert.equal(Object.keys(cache).length, 5000);
-  assert.equal(await storage.getCachedStore('p0'), null);
-  assert.equal(await storage.getCachedStore('p5000'), 's5000');
+  assert.equal(await storage.getCachedSource('aliexpress', 'p0'), null);
+  assert.equal(await storage.getCachedSource('aliexpress', 'p5000'), 's5000');
   await storage.clearCache();
-  assert.equal(await storage.getCachedStore('p5000'), null);
+  assert.equal(await storage.getCachedSource('aliexpress', 'p5000'), null);
 });
 
-test('onBlockedStoresChangedはsync変更で発火し解除関数で止まる', async () => {
+test('getCachedSourceはsiteKeyが異なるキーを区別する', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.setCachedSource('aliexpress', 'item1', 'store1');
+  await storage.setCachedSource('amazon', 'item1', 'seller1');
+  assert.equal(await storage.getCachedSource('aliexpress', 'item1'), 'store1');
+  assert.equal(await storage.getCachedSource('amazon', 'item1'), 'seller1');
+});
+
+test('onBlockedSourcesChangedはsync変更で発火し解除関数で止まる', async () => {
   const mock = chromeMock();
   const storage = loadStorage(mock);
   const seen = [];
-  const unsubscribe = storage.onBlockedStoresChanged((value) => seen.push(value));
-  await storage.addBlockedStore('7', 'S');
+  const unsubscribe = storage.onBlockedSourcesChanged('aliexpress', (value) => seen.push(value));
+  await storage.addBlockedSource('aliexpress', '7', 'S');
   assert.equal(seen.length, 1);
   assert.equal(seen[0]['7'].name, 'S');
   unsubscribe();
-  await storage.addBlockedStore('8', 'T');
+  await storage.addBlockedSource('aliexpress', '8', 'T');
   assert.equal(seen.length, 1);
+});
+
+test('onBlockedSourcesChangedは対象siteKey以外の変更では発火しない', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  const seen = [];
+  storage.onBlockedSourcesChanged('aliexpress', (value) => seen.push(value));
+  await storage.addBlockedSource('rakuten', 'shopA', '楽天店A');
+  assert.equal(seen.length, 0);
 });
 
 test('getDisplayModeは未設定時に既定値placeholderを返す', async () => {

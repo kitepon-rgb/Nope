@@ -5,8 +5,8 @@
 // placeholder モード（既定）では中身をマスコット画像（assets/mascot-blocked.png、chrome.runtime.getURL経由で
 // 拡張同梱リソースとして参照。web_accessible_resourcesへの登録が必要）を使ったプレースホルダーへ差し替え、
 // collapse モードでは wrapper ごと display:none で完全に消す（displayMode は CB_STORAGE 経由で購読・即時再適用）。
-// mtop への同時リクエストは 2 並列・間隔 300ms に抑える（サーバ負荷/bot対策への配慮）。
-// MutationObserver で無限スクロールと SPA 遷移に追従し、blockedStores/displayMode の onChanged で即時再適用する。
+// mtop への同時リクエストは 2 並列・間隔300ms に抑える（サーバ負荷/bot対策への配慮）。
+// MutationObserver で無限スクロールと SPA 遷移に追従し、blockedSources/displayMode の onChanged で即時再適用する。
 // 解決失敗カードは表示のままにし console.warn する（静かなフォールバック禁止＝黙って消さない）。
 // CB_MD5・CB_STORAGE・CB_MTOP と同じく <script> 連結読み込み前提のグローバル公開（ビルド工程なし）。
 
@@ -76,8 +76,8 @@ const CB_SEARCH = (() => {
     originalChildStateByWrapper.delete(wrapper);
   }
 
-  /** @param {string} [storeName] @param {Function} [onUnblock] @returns {any} */
-  function buildPlaceholderElement(storeName, onUnblock) {
+  /** @param {string} [sourceName] @param {Function} [onUnblock] @returns {any} */
+  function buildPlaceholderElement(sourceName, onUnblock) {
     const el = document.createElement('div');
     el.className = PLACEHOLDER_CLASS;
     Object.assign(el.style, {
@@ -103,9 +103,9 @@ const CB_SEARCH = (() => {
     });
     el.appendChild(label);
 
-    if (storeName) {
+    if (sourceName) {
       const nameEl = document.createElement('p');
-      nameEl.textContent = storeName; // XSS防止のためtextContentで入れる（innerHTMLに混ぜない）
+      nameEl.textContent = sourceName; // XSS防止のためtextContentで入れる（innerHTMLに混ぜない）
       Object.assign(nameEl.style, { color: COLOR_INK, margin: '4px 0 0' });
       el.appendChild(nameEl);
     }
@@ -130,11 +130,11 @@ const CB_SEARCH = (() => {
     return el;
   }
 
-  /** @param {any} wrapper @param {string} [storeName] @param {Function} [onUnblock] */
-  function insertPlaceholder(wrapper, storeName, onUnblock) {
+  /** @param {any} wrapper @param {string} [sourceName] @param {Function} [onUnblock] */
+  function insertPlaceholder(wrapper, sourceName, onUnblock) {
     if (wrapper.querySelector && wrapper.querySelector(`.${PLACEHOLDER_CLASS}`)) return; // 二重挿入防止
     hideOriginalChildren(wrapper);
-    const placeholder = buildPlaceholderElement(storeName, onUnblock);
+    const placeholder = buildPlaceholderElement(sourceName, onUnblock);
     if (wrapper.appendChild) wrapper.appendChild(placeholder);
   }
 
@@ -169,7 +169,7 @@ const CB_SEARCH = (() => {
     }
   }
 
-  // productId→storeId 解決を 2並列・間隔300msに抑えるキュー。
+  // itemId→sourceId 解決を 2並列・間隔300msに抑えるキュー。
   // resolveStoreId は注入可能にして純粋にテストできるようにする。
   /** @param {{resolveStoreId: Function, concurrency?: number, intervalMs?: number}} options */
   function createResolveQueue({ resolveStoreId, concurrency = CONCURRENCY, intervalMs = INTERVAL_MS }) {
@@ -205,82 +205,96 @@ const CB_SEARCH = (() => {
     return { enqueue };
   }
 
-  /** @param {{document?: any, storage?: any, mtop?: any}} [deps] */
+  // AliExpress アダプタ（パターンC: 非同期解決）。
+  // cardSelector は manifest.json content_scripts.matches に対応する面のカード要素。
+  const ALIEXPRESS_ADAPTER = {
+    siteKey: 'aliexpress',
+    cardSelector: CARD_SELECTOR,
+    getWrapper: (card) => findWrapper(card),
+    resolver: {
+      type: 'async_resolve',
+      getItemId: (card) => extractProductId(card.getAttribute ? card.getAttribute('href') : card.href),
+    },
+  };
+
+  /** @param {{document?: any, storage?: any, mtop?: any, adapter?: any}} [deps] */
   function init(deps) {
     const doc = (deps && deps.document) || document;
     const storage = (deps && deps.storage) || CB_STORAGE;
     const mtop = (deps && deps.mtop) || CB_MTOP;
+    const adapter = (deps && deps.adapter) || ALIEXPRESS_ADAPTER;
+    const { siteKey, cardSelector, getWrapper, resolver } = adapter;
 
-    const wrapperByProductId = new Map();
-    const storeIdByProductId = new Map();
-    let blockedStores = {};
+    const wrapperByItemId = new Map();
+    const sourceIdByItemId = new Map();
+    let blockedSources = {};
     let displayMode = DEFAULT_MODE;
 
-    const queue = createResolveQueue({ resolveStoreId: (productId) => mtop.resolveStoreId(productId) });
+    const queue = createResolveQueue({ resolveStoreId: (itemId) => mtop.resolveStoreId(itemId) });
 
-    function isBlocked(storeId) {
-      return !!blockedStores[storeId];
+    function isBlocked(sourceId) {
+      return !!blockedSources[sourceId];
     }
 
-    /** @param {string} storeId @returns {{mode: string, storeName: string, onUnblock: Function}} */
-    function buildVisibilityOptions(storeId) {
-      const info = blockedStores[storeId];
+    /** @param {string} sourceId @returns {{mode: string, storeName: string, onUnblock: Function}} */
+    function buildVisibilityOptions(sourceId) {
+      const info = blockedSources[sourceId];
       return {
         mode: displayMode,
         storeName: info ? info.name : '',
-        onUnblock: () => storage.removeBlockedStore(storeId),
+        onUnblock: () => storage.removeBlockedSource(siteKey, sourceId),
       };
     }
 
-    function applyKnown(productId) {
-      const storeId = storeIdByProductId.get(productId);
-      const wrapper = wrapperByProductId.get(productId);
-      if (storeId && wrapper) applyVisibility(wrapper, isBlocked(storeId), buildVisibilityOptions(storeId));
+    function applyKnown(itemId) {
+      const sourceId = sourceIdByItemId.get(itemId);
+      const wrapper = wrapperByItemId.get(itemId);
+      if (sourceId && wrapper) applyVisibility(wrapper, isBlocked(sourceId), buildVisibilityOptions(sourceId));
     }
 
-    function handleCard(link) {
-      const productId = extractProductId(link.getAttribute ? link.getAttribute('href') : link.href);
-      if (!productId || wrapperByProductId.has(productId)) return;
-      const wrapper = findWrapper(link);
-      wrapperByProductId.set(productId, wrapper);
+    function handleCard(card) {
+      const itemId = resolver.getItemId(card);
+      if (!itemId || wrapperByItemId.has(itemId)) return;
+      const wrapper = getWrapper(card);
+      wrapperByItemId.set(itemId, wrapper);
 
-      storage.getCachedStore(productId).then((cached) => {
+      storage.getCachedSource(siteKey, itemId).then((cached) => {
         if (cached) {
-          storeIdByProductId.set(productId, cached);
+          sourceIdByItemId.set(itemId, cached);
           applyVisibility(wrapper, isBlocked(cached), buildVisibilityOptions(cached));
           return;
         }
-        queue.enqueue(productId, (storeId, err) => {
+        queue.enqueue(itemId, (sourceId, err) => {
           if (err) {
-            console.warn(`content-search: storeId解決に失敗しました productId=${productId}`, err);
+            console.warn(`content-search: sourceId解決に失敗しました siteKey=${siteKey} itemId=${itemId}`, err);
             return;
           }
-          storeIdByProductId.set(productId, storeId);
-          applyVisibility(wrapper, isBlocked(storeId), buildVisibilityOptions(storeId));
+          sourceIdByItemId.set(itemId, sourceId);
+          applyVisibility(wrapper, isBlocked(sourceId), buildVisibilityOptions(sourceId));
         });
       });
     }
 
     function scan(root) {
-      for (const link of root.querySelectorAll(CARD_SELECTOR)) handleCard(link);
+      for (const card of root.querySelectorAll(cardSelector)) handleCard(card);
     }
 
     async function start() {
-      blockedStores = await storage.getBlockedStores();
+      blockedSources = await storage.getBlockedSources(siteKey);
       displayMode = await storage.getDisplayMode();
       scan(doc);
 
       const observer = new MutationObserver(() => scan(doc));
       observer.observe(doc.body, { childList: true, subtree: true });
 
-      storage.onBlockedStoresChanged((next) => {
-        blockedStores = next;
-        for (const productId of storeIdByProductId.keys()) applyKnown(productId);
+      storage.onBlockedSourcesChanged(siteKey, (next) => {
+        blockedSources = next;
+        for (const itemId of sourceIdByItemId.keys()) applyKnown(itemId);
       });
 
       storage.onDisplayModeChanged((next) => {
         displayMode = next;
-        for (const productId of storeIdByProductId.keys()) applyKnown(productId);
+        for (const itemId of sourceIdByItemId.keys()) applyKnown(itemId);
       });
     }
 

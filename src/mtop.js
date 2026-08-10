@@ -126,7 +126,7 @@ const CB_MTOP = (() => {
   async function resolveStoreId(productId, options) {
     const useCache = !options || options.useCache !== false;
     if (useCache) {
-      const cached = await CB_STORAGE.getCachedStore(productId);
+      const cached = await CB_STORAGE.getCachedSource('aliexpress', productId);
       if (cached) return cached;
     }
 
@@ -135,7 +135,7 @@ const CB_MTOP = (() => {
       response = await fetchViaJsonp(productId);
     }
     const storeId = extractStoreId(response);
-    if (useCache) await CB_STORAGE.setCachedStore(productId, storeId);
+    if (useCache) await CB_STORAGE.setCachedSource('aliexpress', productId, storeId);
     return storeId;
   }
 

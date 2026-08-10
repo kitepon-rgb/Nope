@@ -24,11 +24,16 @@ function makeFakeElement() {
 }
 
 function makeFakeStorage(initialBlocked) {
-  let blocked = { ...initialBlocked };
+  const sites = { aliexpress: { ...initialBlocked } };
   return {
-    async getBlockedStores() { return { ...blocked }; },
-    async addBlockedStore(storeId, name) { blocked[storeId] = { name, addedAt: 0 }; },
-    async removeBlockedStore(storeId) { delete blocked[storeId]; },
+    async getBlockedSources(siteKey) { return { ...sites[siteKey] }; },
+    async addBlockedSource(siteKey, sourceId, name) {
+      if (!sites[siteKey]) sites[siteKey] = {};
+      sites[siteKey][sourceId] = { name, addedAt: 0 };
+    },
+    async removeBlockedSource(siteKey, sourceId) { delete sites[siteKey]?.[sourceId]; },
+    // テスト検証用ヘルパー
+    _getSite(siteKey) { return { ...sites[siteKey] }; },
   };
 }
 
@@ -41,7 +46,7 @@ function loadContentItem(storage) {
     },
     MutationObserver: FakeMutationObserver,
     setTimeout: () => {},
-    CB_STORAGE: storage ?? { getBlockedStores: async () => ({}) },
+    CB_STORAGE: storage ?? { getBlockedSources: async () => ({}) },
   });
   vm.runInContext(readFileSync(SRC, 'utf8'), context);
   return vm.runInContext('CB_ITEM', context);
@@ -101,7 +106,7 @@ test('createButtonのクリックでブロック追加され表示がトグル�
   const item = loadContentItem(storage);
   const button = await item.createButton('1100223114', 'NailNest Store');
   await button.fireClick();
-  assert.deepEqual(await storage.getBlockedStores(), { 1100223114: { name: 'NailNest Store', addedAt: 0 } });
+  assert.deepEqual(storage._getSite('aliexpress'), { 1100223114: { name: 'NailNest Store', addedAt: 0 } });
   assert.equal(button.textContent, 'ブロック解除');
 });
 
@@ -110,6 +115,6 @@ test('createButtonのクリックでブロック済みstoreは解除され表示
   const item = loadContentItem(storage);
   const button = await item.createButton('1100223114', 'NailNest Store');
   await button.fireClick();
-  assert.deepEqual(await storage.getBlockedStores(), {});
+  assert.deepEqual(storage._getSite('aliexpress'), {});
   assert.equal(button.textContent, '🚫 このストアをブロック');
 });

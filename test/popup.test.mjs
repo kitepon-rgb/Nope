@@ -27,12 +27,17 @@ function makeFakeListEl() {
 }
 
 function makeFakeStorage(initialBlocked) {
-  let blocked = { ...initialBlocked };
+  const sites = { aliexpress: { ...initialBlocked } };
   return {
-    async getBlockedStores() { return { ...blocked }; },
-    async removeBlockedStore(storeId) { delete blocked[storeId]; },
+    async getBlockedSources(siteKey) { return { ...sites[siteKey] }; },
+    async addBlockedSource(siteKey, sourceId, name) {
+      if (!sites[siteKey]) sites[siteKey] = {};
+      sites[siteKey][sourceId] = { name, addedAt: 0 };
+    },
+    async removeBlockedSource(siteKey, sourceId) { if (sites[siteKey]) delete sites[siteKey][sourceId]; },
     async getDisplayMode() { return 'placeholder'; },
     async setDisplayMode() {},
+    _getSite(siteKey) { return { ...sites[siteKey] }; },
   };
 }
 
@@ -43,7 +48,7 @@ function loadPopup(storage) {
       createElement: () => makeFakeElement(),
       querySelectorAll: () => [],
     },
-    CB_STORAGE: storage ?? { getBlockedStores: async () => ({}), getDisplayMode: async () => 'placeholder' },
+    CB_STORAGE: storage ?? { getBlockedSources: async () => ({}), getDisplayMode: async () => 'placeholder' },
   });
   vm.runInContext(readFileSync(SRC, 'utf8'), context);
   return vm.runInContext('CB_POPUP', context);
@@ -111,7 +116,7 @@ test('renderListの削除ボタンでstoreを消して再描画する', async ()
   await popup.renderList(listEl);
   const removeBtn = listEl.children[0].children[1];
   await removeBtn.fireClick();
-  assert.deepEqual(await storage.getBlockedStores(), {});
+  assert.deepEqual(storage._getSite('aliexpress'), {});
   assert.equal(listEl.children[0].textContent, 'ブロック中のストアはありません');
 });
 

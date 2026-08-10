@@ -70,9 +70,9 @@ function loadContentSearch() {
     console,
     chrome: { runtime: { getURL: (path) => `chrome-extension://test-id/${path}` } },
     CB_STORAGE: {
-      getBlockedStores: async () => ({}),
-      getCachedStore: async () => null,
-      onBlockedStoresChanged: () => {},
+      getBlockedSources: async () => ({}),
+      getCachedSource: async () => null,
+      onBlockedSourcesChanged: () => {},
       getDisplayMode: async () => 'placeholder',
       onDisplayModeChanged: () => {},
     },
@@ -274,9 +274,9 @@ test('scanはキャッシュ命中カードを即ブロック判定して非表�
   const wrapper = makeFakeWrapper();
   const link = makeFakeLink('https://ja.aliexpress.com/item/111.html', wrapper);
   const storage = {
-    getBlockedStores: async () => ({ 999: { name: 'Blocked Store', addedAt: 0 } }),
-    getCachedStore: async (productId) => (productId === '111' ? '999' : null),
-    onBlockedStoresChanged: () => {},
+    getBlockedSources: async () => ({ 999: { name: 'Blocked Store', addedAt: 0 } }),
+    getCachedSource: async (_siteKey, productId) => (productId === '111' ? '999' : null),
+    onBlockedSourcesChanged: () => {},
     getDisplayMode: async () => 'collapse',
     onDisplayModeChanged: () => {},
   };
@@ -292,9 +292,9 @@ test('scanは未ブロックstoreのカードを表示のままにする', async
   const wrapper = makeFakeWrapper();
   const link = makeFakeLink('https://ja.aliexpress.com/item/222.html', wrapper);
   const storage = {
-    getBlockedStores: async () => ({}),
-    getCachedStore: async () => '888',
-    onBlockedStoresChanged: () => {},
+    getBlockedSources: async () => ({}),
+    getCachedSource: async () => '888',
+    onBlockedSourcesChanged: () => {},
     getDisplayMode: async () => 'collapse',
     onDisplayModeChanged: () => {},
   };
@@ -310,9 +310,9 @@ test('scanはcache未ヒットならmtop.resolveStoreIdで解決して判定す�
   const wrapper = makeFakeWrapper();
   const link = makeFakeLink('https://ja.aliexpress.com/item/333.html', wrapper);
   const storage = {
-    getBlockedStores: async () => ({ 777: { name: 'Blocked', addedAt: 0 } }),
-    getCachedStore: async () => null,
-    onBlockedStoresChanged: () => {},
+    getBlockedSources: async () => ({ 777: { name: 'Blocked', addedAt: 0 } }),
+    getCachedSource: async () => null,
+    onBlockedSourcesChanged: () => {},
     getDisplayMode: async () => 'collapse',
     onDisplayModeChanged: () => {},
   };
@@ -325,15 +325,15 @@ test('scanはcache未ヒットならmtop.resolveStoreIdで解決して判定す�
   assert.equal(wrapper.style.display, 'none');
 });
 
-test('blockedStoresの変更で既知カードへ即時再適用する', async () => {
+test('blockedSourcesの変更で既知カードへ即時再適用する', async () => {
   const search = loadContentSearch();
   const wrapper = makeFakeWrapper();
   const link = makeFakeLink('https://ja.aliexpress.com/item/444.html', wrapper);
   let changeListener = null;
   const storage = {
-    getBlockedStores: async () => ({}),
-    getCachedStore: async () => '555',
-    onBlockedStoresChanged: (fn) => { changeListener = fn; },
+    getBlockedSources: async () => ({}),
+    getCachedSource: async () => '555',
+    onBlockedSourcesChanged: (_siteKey, fn) => { changeListener = fn; },
     getDisplayMode: async () => 'collapse',
     onDisplayModeChanged: () => {},
   };
@@ -356,12 +356,12 @@ test('displayModeの変更で既知カードへ即時再適用する（collapse�
   const link = makeFakeLink('https://ja.aliexpress.com/item/666.html', wrapper);
   let modeListener = null;
   const storage = {
-    getBlockedStores: async () => ({ 555: { name: 'X', addedAt: 0 } }),
-    getCachedStore: async () => '555',
-    onBlockedStoresChanged: () => {},
+    getBlockedSources: async () => ({ 555: { name: 'X', addedAt: 0 } }),
+    getCachedSource: async () => '555',
+    onBlockedSourcesChanged: () => {},
     getDisplayMode: async () => 'collapse',
     onDisplayModeChanged: (fn) => { modeListener = fn; },
-    removeBlockedStore: async () => {},
+    removeBlockedSource: async () => {},
   };
   const doc = { querySelectorAll: () => [link], body: {} };
   const controller = search.init({ document: doc, storage, mtop: { resolveStoreId: async () => { throw new Error('呼ばれないはず'); } } });

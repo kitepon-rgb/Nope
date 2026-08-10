@@ -54,17 +54,17 @@ const CB_ITEM = (() => {
     });
 
     async function refresh() {
-      const blocked = await CB_STORAGE.getBlockedStores();
+      const blocked = await CB_STORAGE.getBlockedSources('aliexpress');
       button.textContent = blocked[storeId] ? 'ブロック解除' : '🚫 このストアをブロック';
     }
 
     button.addEventListener('click', async () => {
-      const blocked = await CB_STORAGE.getBlockedStores();
+      const blocked = await CB_STORAGE.getBlockedSources('aliexpress');
       if (blocked[storeId]) {
-        await CB_STORAGE.removeBlockedStore(storeId);
+        await CB_STORAGE.removeBlockedSource('aliexpress', storeId);
         showToast(`${name} のブロックを解除しました`);
       } else {
-        await CB_STORAGE.addBlockedStore(storeId, name);
+        await CB_STORAGE.addBlockedSource('aliexpress', storeId, name);
         showToast(`${name} をブロックしました`);
       }
       await refresh();
