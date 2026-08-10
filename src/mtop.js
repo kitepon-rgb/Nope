@@ -9,7 +9,9 @@ const CB_MTOP = (() => {
   const API_NAME = 'mtop.aliexpress.pdp.pc.query';
   const ENDPOINT = `https://acs.aliexpress.com/h5/${API_NAME}/1.0/`;
   const RESPONSE_TIMEOUT_MS = 10000;
-  const RELAY_EVENT_PREFIX = 'cb-mtop-result-';
+  // src/mtop-main-relay.js（main world）との合図。イベント名はここが唯一の正本。
+  const REQUEST_EVENT = 'cb-mtop-request';
+  const RESPONSE_EVENT = 'cb-mtop-response';
 
   function readToken() {
     const match = document.cookie.match(/(?:^|;\s*)_m_h5_tk=([^;]+)/);
@@ -75,9 +77,11 @@ const CB_MTOP = (() => {
     return ret.some((r) => typeof r === 'string' && (r.includes('TOKEN_EXPIRED') || r.includes('TOKEN_EMPTY')));
   }
 
-  // JSONP は content script の isolated world では受け取れない（<script src> は main world 実行）。
-  // main world にリレー関数を注入し、main world → isolated world は CustomEvent の detail(文字列)経由で受け渡す。
-  // 実測確定(2026-08-10 bell): この経路で mtop 実レスポンス(SUCCESS)を取得済み。
+  // 実測確定(2026-08-10 sumire): content script の isolated world から document.createElement('script')
+  // で作った要素は DOM に正しく接続されても main world では実行されない（CSP違反なし・エラーも出ない
+  // まま onerror/未実行のまま止まる）。よって実際の JSONP 実行は src/mtop-main-relay.js
+  // （manifest.json content_scripts[].world:"MAIN" で宣言された正真の main world スクリプト）に委譲し、
+  // isolated world 側はリクエストを CustomEvent で投げてレスポンスを待つだけにする。
   /** @param {string} productId @returns {Promise<any>} */
   function fetchViaJsonp(productId) {
     return new Promise((resolve, reject) => {
@@ -86,19 +90,13 @@ const CB_MTOP = (() => {
 
       const t = Date.now();
       const { url, callback } = buildUrl(productId, token, t);
-      const eventName = `${RELAY_EVENT_PREFIX}${callback}`;
+      const requestId = callback;
       let settled = false;
       let timer = null;
-      const relayScript = document.createElement('script');
-      const jsonpScript = document.createElement('script');
 
       const cleanup = () => {
-        document.removeEventListener(eventName, onEvent);
+        document.removeEventListener(RESPONSE_EVENT, onResponse);
         if (timer) clearTimeout(timer);
-        relayScript.remove();
-        jsonpScript.remove();
-        // main world 側に関数が残っていても次回呼び出し名(t依存)が変わるため実害はないが、
-        // 念のため main world 側にも削除コードを埋め込んでいる（下記 textContent 参照）。
       };
       const settle = (fn) => {
         if (settled) return;
@@ -106,23 +104,19 @@ const CB_MTOP = (() => {
         cleanup();
         fn();
       };
-      const onEvent = (ev) => {
+      const onResponse = (ev) => {
+        let payload;
+        try { payload = JSON.parse(ev.detail); } catch (err) { return; }
+        if (!payload || payload.requestId !== requestId) return;
         settle(() => {
-          try { resolve(JSON.parse(ev.detail)); } catch (err) { reject(err); }
+          if (payload.ok) resolve(payload.data);
+          else reject(new Error(payload.error || 'mtop: main world relay からエラーが返されました'));
         });
       };
 
-      document.addEventListener(eventName, onEvent);
+      document.addEventListener(RESPONSE_EVENT, onResponse);
       timer = setTimeout(() => settle(() => reject(new Error('mtop: レスポンスタイムアウト'))), RESPONSE_TIMEOUT_MS);
-
-      relayScript.textContent = `window['${callback}']=function(d){`
-        + `document.dispatchEvent(new CustomEvent('${eventName}',{detail:JSON.stringify(d)}));`
-        + `delete window['${callback}'];};`;
-      document.documentElement.appendChild(relayScript);
-
-      jsonpScript.src = url;
-      jsonpScript.onerror = () => settle(() => reject(new Error('mtop: JSONPスクリプトの読込に失敗しました')));
-      document.documentElement.appendChild(jsonpScript);
+      document.dispatchEvent(new CustomEvent(REQUEST_EVENT, { detail: JSON.stringify({ requestId, url, callback }) }));
     });
   }
 
