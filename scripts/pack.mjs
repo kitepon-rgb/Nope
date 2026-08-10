@@ -1,5 +1,7 @@
 // 配布用 ZIP を生成するスクリプト。
-// 同梱するのは manifest.json / src/ / popup/ / icons/ のみ。
+// 同梱するのは manifest.json / src/ / popup/ / icons/ / assets/mascot-blocked.png のみ。
+// assets/mascot-source.png(2048x2048、開発用の原本)は実行時に参照されないため、
+// 配布物に含めない。ディレクトリ丸ごとではなく個別ファイルとして指定することで除外している。
 // ZIP のルート直下に manifest.json が来るよう、一時ステージングディレクトリへ
 // コピーしてから Compress-Archive (Windows PowerShell 標準搭載、追加依存ゼロ) で固める。
 //
@@ -21,7 +23,13 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 
-const INCLUDE_ENTRIES = ["manifest.json", "src", "popup", "icons"];
+const INCLUDE_ENTRIES = [
+  "manifest.json",
+  "src",
+  "popup",
+  "icons",
+  "assets/mascot-blocked.png",
+];
 
 function readManifestVersion() {
   const manifest = JSON.parse(
@@ -52,7 +60,11 @@ function main() {
   const stagingDir = mkdtempSync(join(tmpdir(), "chromeblocker-pack-"));
   try {
     for (const entry of INCLUDE_ENTRIES) {
-      cpSync(join(repoRoot, entry), join(stagingDir, entry), {
+      const dest = join(stagingDir, entry);
+      // entry が "assets/mascot-blocked.png" のようなネストしたファイルの場合、
+      // 親ディレクトリ(stagingDir/assets/)を先に作っておく必要がある。
+      mkdirSync(dirname(dest), { recursive: true });
+      cpSync(join(repoRoot, entry), dest, {
         recursive: true,
       });
     }
