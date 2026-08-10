@@ -21,7 +21,16 @@
   "web_accessible_resources": [
     {
       "resources": ["assets/mascot-blocked.png"],
-      "matches": ["*://*.aliexpress.com/*"]
+      "matches": [
+        "*://*.aliexpress.com/*",
+        "*://search.rakuten.co.jp/*",
+        "*://shopping.yahoo.co.jp/*",
+        "*://www.youtube.com/*",
+        "*://news.yahoo.co.jp/*",
+        "*://www.yahoo.co.jp/*",
+        "*://auctions.yahoo.co.jp/*",
+        "*://www.amazon.co.jp/*"
+      ]
     }
   ],
   "content_scripts": [

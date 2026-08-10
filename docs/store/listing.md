@@ -36,29 +36,85 @@ v1.1.0 時点では AliExpress の特定ストア（発信元）のみ対応。�
 
 ## Permission justification（権限の正当化）
 
-Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `content_scripts.matches` の両方がホストアクセスとして表示される。実際の `manifest.json`（2026-08-11 時点）は次の通り:
+Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `content_scripts.matches` の両方がホストアクセスとして表示される。実際の `manifest.json`（v2.0.0 時点）は次の通り:
 
 ```json
 "permissions": ["storage"],
 "content_scripts": [
   { "matches": ["*://*.aliexpress.com/*"], "js": ["src/mtop-main-relay.js"], "world": "MAIN", "run_at": "document_start" },
-  { "matches": ["*://*.aliexpress.com/*"], "js": ["src/md5.js", "src/storage.js", "src/mtop.js", "src/content-item.js", "src/content-search.js"], "run_at": "document_idle" }
+  { "matches": ["*://*.aliexpress.com/*"], "js": ["src/md5.js", "src/storage.js", "src/mtop.js", "src/content-item.js", "src/content-search.js"], "run_at": "document_idle" },
+  { "matches": ["*://search.rakuten.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/rakuten.js"], "run_at": "document_idle" },
+  { "matches": ["*://shopping.yahoo.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/yahoo_shopping.js"], "run_at": "document_idle" },
+  { "matches": ["*://www.youtube.com/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/youtube.js"], "run_at": "document_idle" },
+  { "matches": ["*://www.youtube.com/watch*"], "js": ["src/storage.js", "src/content-name.js", "src/keyword-filter.js", "src/adapters/youtube_watch.js"], "run_at": "document_idle" },
+  { "matches": ["*://news.yahoo.co.jp/*"], "js": ["src/storage.js", "src/content-name.js", "src/keyword-filter.js", "src/adapters/yahoo_news.js"], "run_at": "document_idle" },
+  { "matches": ["*://www.yahoo.co.jp/*"], "js": ["src/storage.js", "src/content-name.js", "src/keyword-filter.js", "src/adapters/yahoo_japan.js"], "run_at": "document_idle" },
+  { "matches": ["*://auctions.yahoo.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/yahoo_auctions.js"], "run_at": "document_idle" },
+  { "matches": ["*://www.amazon.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/amazon.js"], "run_at": "document_idle" }
 ]
 ```
 
-**注意（食い違いの明記）**: design memo は「host permission `*://*.aliexpress.com/*`」と表現していたが、実際の `manifest.json` に `host_permissions` フィールドは存在しない。`*://*.aliexpress.com/*` は `content_scripts[].matches` としてのみ宣言されている（`host_permissions` の明示追加は t4-mtop で「不要と判明」として見送られた——`docs/evidence/t4-mtop.md` 参照）。Chrome Web Store の権限表示・審査上は `content_scripts.matches` も実質的にホストアクセスとして扱われるため、以下ではこれを「ホストアクセス（content script 経由）」と呼ぶ。
+**注意**: `manifest.json` に `host_permissions` フィールドは存在しない。各ドメインは `content_scripts[].matches` としてのみ宣言されている（`host_permissions` の明示追加は t4-mtop で「不要と判明」として見送られた——`docs/evidence/t4-mtop.md` 参照）。Chrome Web Store の権限表示・審査上は `content_scripts.matches` も実質的にホストアクセスとして扱われるため、以下ではこれを「ホストアクセス（content script 経由）」と呼ぶ。
 
 ### `storage`
 
-ブロック対象ストアの一覧（`chrome.storage.sync` の `blockedStores`）と表示モード設定（`displayMode`。r1-placeholder で追加、既定値 `placeholder`）を端末間で同期して保持するために必要。加えて productId→storeId の解決結果キャッシュ（`chrome.storage.local` の `productStoreCache`、最大5000件）を保存するために必要。これらはすべて拡張の中核機能（非表示判定の高速化・ブロックリストの永続化）に直結し、他の権限では代替できない。
+ブロック対象の発信元一覧（`chrome.storage.sync` の `blockedSources`。サイト別にキー分けされた構造）と表示モード設定（`displayMode`、既定値 `placeholder`）を端末間で同期して保持するために必要。加えて itemId→sourceId の解決結果キャッシュ（`chrome.storage.local` の `itemSourceCache`、`{siteKey}:{itemId}` 形式のキーでフラット保存）を保存するために必要。これらはすべて拡張の中核機能（非表示判定の高速化・ブロックリストの永続化）に直結し、他の権限では代替できない。
 
 ### ホストアクセス `*://*.aliexpress.com/*`（content script）
 
 以下すべて AliExpress ドメイン上でのみ実行され、他ドメインでは一切動作しない。
 
-- **検索結果ページ**（`content-search.js`）: 商品カード（`a.search-card-item`）の href から productId を読み取り、ブロック対象ストアかどうか判定して非表示にするために必要。
+- **検索結果ページ**（`content-search.js` + `aliexpress` アダプタ）: 商品カード（`a.search-card-item`）の href から productId を読み取り、ブロック対象ストアかどうか判定して非表示にするために必要。
 - **商品ページ**（`content-item.js`）: ページ内のストアリンク（`a[href*="/store/"]`）から storeId を取得し、「このストアをブロック」ボタンを注入するために必要。
-- **mtop API 中継**（`mtop.js` / `mtop-main-relay.js`）: 検索結果カードの href には storeId が含まれないケースがあるため、productId→storeId の解決に AliExpress 自身の内部 API（`mtop.aliexpress.pdp.pc.query`、エンドポイント `acs.aliexpress.com`）を呼ぶ。**これは AliExpress 自身のエンドポイントであり、拡張の開発者を含むいかなる外部サーバーへも何も送信していない。** ブラウザの CORS 制約を避けるため、`content_scripts[].world:"MAIN"`（Chrome 111+ の正規機能）でページと同じコンテキストから JSONP リクエストを行う設計（`docs/evidence/t4-mtop.md` 参照）。
+- **mtop API 中継**（`mtop.js` / `mtop-main-relay.js`）: 検索結果カードの href には storeId が含まれないため、productId→storeId の解決に AliExpress 自身の内部 API（`mtop.aliexpress.pdp.pc.query`、エンドポイント `acs.aliexpress.com`）を呼ぶ。**これは AliExpress 自身のエンドポイントであり、拡張の開発者を含むいかなる外部サーバーへも何も送信していない。** ブラウザの CORS 制約を避けるため、`content_scripts[].world:"MAIN"`（Chrome 111+ の正規機能）でページと同じコンテキストから JSONP リクエストを行う設計（`docs/evidence/t4-mtop.md` 参照）。
+
+### ホストアクセス `*://search.rakuten.co.jp/*`（content script）
+
+楽天市場の検索結果ページのみで実行される。
+
+- **検索結果ページ**（`content-search.js` + `rakuten` アダプタ）: 商品カード（`.dui-card`）内の店舗リンク（`a[href^="https://www.rakuten.co.jp/"][href$="/"]`）から店舗スラグを直接取得し、ブロック対象かどうか判定して非表示にするために必要。発信元の識別子は DOM から同期取得できるため、外部 API へのリクエストは行わない。
+
+### ホストアクセス `*://shopping.yahoo.co.jp/*`（content script）
+
+Yahoo!ショッピングの検索結果ページのみで実行される。
+
+- **検索結果ページ**（`content-search.js` + `yahoo_shopping` アダプタ）: 商品カード内の出品ストアリンク（`a[href^="https://store.shopping.yahoo.co.jp/"][href$="/"]`）から storeId を直接取得し、ブロック対象かどうか判定して非表示にするために必要。発信元の識別子は DOM から同期取得できるため、外部 API へのリクエストは行わない。
+
+### ホストアクセス `*://www.youtube.com/*`（content script、検索結果）
+
+YouTube の検索結果ページでのみ適用される。
+
+- **検索結果ページ**（`content-search.js` + `youtube` アダプタ、パターンA）: 動画カード（`ytd-video-renderer`）内のチャンネルリンク（`a[href*="/@"]` または `a[href*="/channel/"]`）からチャンネル識別子を取得し、ブロック対象かどうか判定して非表示にするために必要。外部 API へのリクエストは行わない。
+
+### ホストアクセス `*://www.youtube.com/watch*`（content script、視聴ページ）
+
+YouTube の動画視聴ページでのみ適用される（上記の検索結果エントリとは別エントリ）。
+
+- **視聴ページの関連動画**（`content-name.js` + `youtube_watch` アダプタ、パターンB）: 関連動画カード（`yt-lockup-view-model`）内のチャンネル名テキスト（`span.ytAttributedStringHost`）でブロック対象かどうか判定するために必要。DOM にチャンネルリンクが存在しないため表示名マッチを使用する（`nameOnly: true` エントリ）。キーワードフィルタ（`keyword-filter.js`）も同一エントリでロードする。外部 API へのリクエストは行わない。
+
+### ホストアクセス `*://news.yahoo.co.jp/*`（content script）
+
+Yahoo ニュースのニュース一覧ページのみで実行される。
+
+- **ニュース一覧**（`content-name.js` + `yahoo_news` アダプタ、パターンB）: 記事カード（`ul.newsFeed_list > li`）内の出版社名テキスト（`time` の前の要素）でブロック対象かどうか判定して非表示にするために必要。DOM に出版社へのリンクが存在しないため表示名マッチを使用する（`nameOnly: true` エントリ）。キーワードフィルタ（`keyword-filter.js`）も同一エントリでロードし、指定キーワードを含む記事タイトルを追加でブロックできる。外部 API へのリクエストは行わない。
+
+### ホストアクセス `*://www.yahoo.co.jp/*`（content script）
+
+Yahoo! JAPAN のトップページのみで実行される。
+
+- **トップページのニュースフィード**（`content-name.js` + `yahoo_japan` アダプタ、パターンB）: 記事カード（`article:has(cite):not(:has(article))`）内の `cite` 要素から出版社名を取得し、ブロック対象かどうか判定して非表示にするために必要。DOM に出版社へのリンクが存在しないため表示名マッチを使用する（`nameOnly: true` エントリ）。キーワードフィルタ（`keyword-filter.js`）も同一エントリでロードし、指定キーワードを含む記事タイトルを追加でブロックできる。外部 API へのリクエストは行わない。
+
+### ホストアクセス `*://auctions.yahoo.co.jp/*`（content script）
+
+ヤフオクの検索結果ページのみで実行される。
+
+- **検索結果ページ**（`content-search.js` + `yahoo_auctions` アダプタ）: 出品カード（`li.Product`）の `data-auction-id` 属性からオークションIDを取得し、出品者を特定して非表示にするために必要。カード内に出品者リンクが存在しないため、オークション詳細ページを fetch して出品者 ID を解決する（**アクセス先は auctions.yahoo.co.jp のみ。拡張の開発者サーバーへは何も送信しない**）。解決結果はローカルキャッシュ（`chrome.storage.local`）に保存し、同じオークション ID への重複リクエストを回避する。
+
+### ホストアクセス `*://www.amazon.co.jp/*`（content script）
+
+Amazon.co.jp の検索結果ページのみで実行される。
+
+- **検索結果ページ**（`content-search.js` + `amazon` アダプタ）: 商品カード（`div[data-component-type="s-search-result"]`）の `data-asin` 属性から ASIN を取得し、出品者を特定して非表示にするために必要。カード内に出品者リンクが存在しないため、商品詳細ページを fetch して出品者 ID を解決する（**アクセス先は amazon.co.jp のみ。拡張の開発者サーバーへは何も送信しない**）。解決結果はローカルキャッシュ（`chrome.storage.local`）に保存し、同じ ASIN への重複リクエストを回避する。
 
 ---
 
@@ -66,7 +122,7 @@ Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `co
 
 詳細は `docs/store/privacy.md`（公開URL: https://github.com/kitepon-rgb/Nope/blob/main/docs/store/privacy.md）。ダッシュボードの **Privacy practices** タブでの申告方針:
 
-- **Data collection**: 拡張の開発者・提供者は、いかなるユーザーデータも収集・受信しない（送信先はすべてブラウザローカルの `chrome.storage`、またはユーザー自身が閲覧中の AliExpress 自身のドメインのみ）。
+- **Data collection**: 拡張の開発者・提供者は、いかなるユーザーデータも収集・受信しない（送信先はすべてブラウザローカルの `chrome.storage`、またはユーザー自身が閲覧中の各サイト自身のドメインのみ。AliExpress の mtop API・ヤフオクの出品ページ・Amazon の商品詳細ページへのリクエストはユーザーが今まさに閲覧しているサイト自身へのものであり、第三者への送信ではない）。
 - **Data usage 該当なし**: Personally identifiable info / Health info / Financial and payment info / Authentication info / Personal communications / Location / Web history / User activity のいずれについても「収集して外部（開発者・第三者）へ送信する」に該当する項目はない。
 - **Certify compliance**: Developer Program Policies への準拠を宣言する（該当時にチェック）。
 
@@ -74,28 +130,36 @@ Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `co
 
 ## Description（説明文）
 
-### 短い説明（Short description、132文字以内。実測90文字）
+### 短い説明（Short description、132文字以内）
 
-> 閲覧中のWebページから、指定した発信元のコンテンツを非表示にするブロッカー。現在はAliExpressの特定ストアに対応。ポップアップでブロック対象の一覧・追加・解除ができます。
+> 閲覧中のWebページから、指定した発信元のコンテンツを非表示にするブロッカー。AliExpress・楽天・Amazon・YouTube など7サイトに対応。ポップアップでブロック対象の一覧・追加・解除ができます。
 
 ### 詳細説明（Detailed description）
 
-> 閲覧中のWebページから、指定した発信元のコンテンツを非表示にするブロッカー拡張機能です。現在はAliExpress（aliexpress.com）の特定ストアに対応しています。
+> 閲覧中のWebページから、指定した発信元のコンテンツを非表示にするブロッカー拡張機能です。
 >
 > **できること**
-> - 商品ページの「このストアをブロック」ボタンから、そのストアをワンクリックでブロックリストに追加
-> - 以後、検索結果に表示されるそのストアの商品を自動的に非表示（ブロックリストの変更はページの再読み込みなしで即座に反映）
-> - 拡張アイコンのポップアップから、ブロック中のストア一覧の確認・ストアURL/IDでの直接追加・削除・解除がいつでも可能
-> - ブロック済み商品の表示方法は、控えめなプレースホルダー表示／完全に非表示にして詰める、の2モードから選択可能
+> - 各サイトの検索結果・一覧ページで、ブロック対象の発信元（ショップ・チャンネル・出版社）のコンテンツを自動非表示
+> - AliExpress・Amazon の商品ページから「このストアをブロック」ボタンでワンクリック登録
+> - ブロックリストの変更はページの再読み込みなしで即座に反映
+> - 拡張アイコンのポップアップから、ブロック中の発信元の確認・追加・解除がいつでも可能
+> - ブロック済みコンテンツの表示方法は、控えめなプレースホルダー表示／完全に非表示にして詰める、の2モードから選択可能
 >
 > **データの扱い**
 > - 収集するデータはありません。外部サーバーへの送信も一切ありません
 > - ブロックリストはお使いの Google アカウントで端末間同期されます（`chrome.storage.sync`）
-> - 商品とストアの対応キャッシュはこの端末内にのみ保存されます（`chrome.storage.local`）
+> - 発信元の解決キャッシュはこの端末内にのみ保存されます（`chrome.storage.local`）
 > - 詳しくはプライバシーポリシーをご覧ください
 >
 > **対応サイト**
-> - AliExpress（`aliexpress.com`）の検索結果ページ・商品ページのみで動作します
+> - AliExpress（`aliexpress.com`）の検索結果ページ・商品ページ
+> - 楽天市場（`search.rakuten.co.jp`）の検索結果ページ
+> - Yahoo!ショッピング（`shopping.yahoo.co.jp`）の検索結果ページ
+> - ヤフオク（`auctions.yahoo.co.jp`）の検索結果ページ
+> - Amazon.co.jp（`amazon.co.jp`）の検索結果ページ
+> - YouTube（`youtube.com`）の検索結果ページ・動画視聴ページの関連動画
+> - Yahoo ニュース（`news.yahoo.co.jp`）のニュース一覧
+> - Yahoo! JAPAN（`yahoo.co.jp`）のトップページのニュースフィード
 
 **誇大表現・煽り文言の排除について**: 拡張内部の UI（トースト通知等、`src/content-item.js`）には煽情的な文言はない（「〇〇をブロックしました」「〇〇のブロックを解除しました」という淡々とした通知のみ）。
 
