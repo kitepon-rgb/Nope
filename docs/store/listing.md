@@ -1,0 +1,115 @@
+# Chrome Web Store 掲載情報（listing）
+
+r6-store-listing の成果物。Chrome Web Store デベロッパーダッシュボードの「Store listing」タブ入力時にこのまま転記できる形でまとめる。r7-submit が実際の入力・提出を行う。
+
+事実確認元: `manifest.json`（permissions・content_scripts）、`src/storage.js`、`src/mtop.js`、`src/mtop-main-relay.js`、`src/content-item.js`、`popup/popup.html`、`docs/evidence/*`、`docs/plan_chromeblocker-release.md`（2026-08-10 時点）。
+
+---
+
+## Single purpose（単一目的の宣言）
+
+> AliExpress の検索結果と商品ページから、ユーザーが指定したストアの商品を非表示にする。
+
+**日本語（ダッシュボード入力用、そのまま）:**
+
+AliExpress の検索結果と商品ページから、ユーザーが指定したストアの商品を非表示にします。
+
+**この一文で拡張の全機能を説明できる根拠:**
+
+拡張の実装は3つの画面にまたがるが、すべて上記1目的のための手段でしかない。
+
+- `src/content-search.js`（検索結果ページ）: 非表示そのものを実行する中核機能
+- `src/content-item.js`（商品ページ）: 「このストアをブロック」ボタン＝非表示対象（ブロックリスト）への追加・解除の入力手段
+- `popup/`（拡張アイコンクリック時）: ブロックリストの一覧表示・追加・削除・キャッシュクリア＝非表示対象を管理する手段
+
+ボタンや popup を独立機能として書かず、「ユーザーが指定したストアの商品を非表示にする」という1つの目的を実現するための入力/管理UIとして一貫させて説明する。
+
+---
+
+## Permission justification（権限の正当化）
+
+Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `content_scripts.matches` の両方がホストアクセスとして表示される。実際の `manifest.json`（2026-08-10 時点）は次の通り:
+
+```json
+"permissions": ["storage"],
+"content_scripts": [
+  { "matches": ["*://*.aliexpress.com/*"], "js": ["src/mtop-main-relay.js"], "world": "MAIN", "run_at": "document_start" },
+  { "matches": ["*://*.aliexpress.com/*"], "js": ["src/md5.js", "src/storage.js", "src/mtop.js", "src/content-item.js", "src/content-search.js"], "run_at": "document_idle" }
+]
+```
+
+**注意（食い違いの明記）**: design memo は「host permission `*://*.aliexpress.com/*`」と表現していたが、実際の `manifest.json` に `host_permissions` フィールドは存在しない。`*://*.aliexpress.com/*` は `content_scripts[].matches` としてのみ宣言されている（`host_permissions` の明示追加は t4-mtop で「不要と判明」として見送られた——`docs/evidence/t4-mtop.md` 参照）。Chrome Web Store の権限表示・審査上は `content_scripts.matches` も実質的にホストアクセスとして扱われるため、以下ではこれを「ホストアクセス（content script 経由）」と呼ぶ。
+
+### `storage`
+
+ブロック対象ストアの一覧（`chrome.storage.sync` の `blockedStores`）と表示モード設定（`displayMode`。r1-placeholder で追加、既定値 `placeholder`）を端末間で同期して保持するために必要。加えて productId→storeId の解決結果キャッシュ（`chrome.storage.local` の `productStoreCache`、最大5000件）を保存するために必要。これらはすべて拡張の中核機能（非表示判定の高速化・ブロックリストの永続化）に直結し、他の権限では代替できない。
+
+### ホストアクセス `*://*.aliexpress.com/*`（content script）
+
+以下すべて AliExpress ドメイン上でのみ実行され、他ドメインでは一切動作しない。
+
+- **検索結果ページ**（`content-search.js`）: 商品カード（`a.search-card-item`）の href から productId を読み取り、ブロック対象ストアかどうか判定して非表示にするために必要。
+- **商品ページ**（`content-item.js`）: ページ内のストアリンク（`a[href*="/store/"]`）から storeId を取得し、「このストアをブロック」ボタンを注入するために必要。
+- **mtop API 中継**（`mtop.js` / `mtop-main-relay.js`）: 検索結果カードの href には storeId が含まれないケースがあるため、productId→storeId の解決に AliExpress 自身の内部 API（`mtop.aliexpress.pdp.pc.query`、エンドポイント `acs.aliexpress.com`）を呼ぶ。**これは AliExpress 自身のエンドポイントであり、拡張の開発者を含むいかなる外部サーバーへも何も送信していない。** ブラウザの CORS 制約を避けるため、`content_scripts[].world:"MAIN"`（Chrome 111+ の正規機能）でページと同じコンテキストから JSONP リクエストを行う設計（`docs/evidence/t4-mtop.md` 参照）。
+
+---
+
+## Privacy declaration（プライバシー申告、要約）
+
+詳細は `docs/store/privacy.md`。ダッシュボードの **Privacy practices** タブでの申告方針:
+
+- **Data collection**: 拡張の開発者・提供者は、いかなるユーザーデータも収集・受信しない（送信先はすべてブラウザローカルの `chrome.storage`、またはユーザー自身が閲覧中の AliExpress 自身のドメインのみ）。
+- **Data usage 該当なし**: Personally identifiable info / Health info / Financial and payment info / Authentication info / Personal communications / Location / Web history / User activity のいずれについても「収集して外部（開発者・第三者）へ送信する」に該当する項目はない。
+- **Certify compliance**: Developer Program Policies への準拠を宣言する（該当時にチェック）。
+
+---
+
+## Description（説明文）
+
+### 短い説明（Short description、132文字以内。実測74文字）
+
+> AliExpressの検索結果・商品ページから、指定したストアの商品を非表示にします。ブロック対象はポップアップでいつでも一覧・追加・解除できます。
+
+### 詳細説明（Detailed description）
+
+> AliExpress で「二度と表示したくない」ストアの商品を、検索結果から自動的に非表示にする拡張機能です。
+>
+> **できること**
+> - 商品ページの「このストアをブロック」ボタンから、そのストアをワンクリックでブロックリストに追加
+> - 以後、検索結果に表示されるそのストアの商品を自動的に非表示（ブロックリストの変更はページの再読み込みなしで即座に反映）
+> - 拡張アイコンのポップアップから、ブロック中のストア一覧の確認・ストアURL/IDでの直接追加・削除・解除がいつでも可能
+> - ブロック済み商品の表示方法は、控えめなプレースホルダー表示／完全に非表示にして詰める、の2モードから選択可能
+>
+> **データの扱い**
+> - 収集するデータはありません。外部サーバーへの送信も一切ありません
+> - ブロックリストはお使いの Google アカウントで端末間同期されます（`chrome.storage.sync`）
+> - 商品とストアの対応キャッシュはこの端末内にのみ保存されます（`chrome.storage.local`）
+> - 詳しくはプライバシーポリシーをご覧ください
+>
+> **対応サイト**
+> - AliExpress（`aliexpress.com`）の検索結果ページ・商品ページのみで動作します
+
+**誇大表現・煽り文言の排除について**: 拡張内部の UI（トースト通知等、`src/content-item.js`）には煽情的な文言はない（「〇〇をブロックしました」「〇〇のブロックを解除しました」という淡々とした通知のみ）。design memo に記載の「ざまぁ」的な演出文言はストア掲載文には一切含めていない——含めるべき現行コード上の演出も見当たらない（2026-08-10 時点、`grep` で拡張内 UI 文言を確認済み）。r1-placeholder で追加予定の「猫プレースホルダー」表示についても、説明文では「控えめなプレースホルダー表示」という機能的な表現に留め、キャラクター性の煽りは書かない。
+
+---
+
+## Category / Language（カテゴリ・言語）
+
+- **Category**: Shopping（買い物体験を調整する拡張のため。次点候補は Productivity だが、AliExpress という特定ショッピングサイト専用機能なので Shopping が適切）
+- **Language**: 日本語（ja）のみ。`popup/popup.html` は `lang="ja"`、拡張内メッセージもすべて日本語。多言語対応は未実装のため、英語等での申請はしない
+
+---
+
+## Screenshots（掲載順とキャプション）
+
+撮影は r2-placeholder-verify が行う（1280x800、r1-placeholder 完了後）。ここでは掲載順序とキャプションのみ決定する。r1 完了前に撮影できる 1〜3 を先行して用意し、r1/r2 完了後に 4・5 を追加する運用とする。
+
+| # | シーン | 撮影対象 | キャプション（日本語） | 前提タスク |
+|---|--------|----------|----------------------|-----------|
+| 1 | 検索結果ページ：ブロック済みストアの商品が消えている | `docs/evidence/t5-hidden.png` 相当（1280x800で撮り直し） | 検索結果からブロック済みストアの商品が自動的に消える | 完了済み(t5) |
+| 2 | 商品ページ：「このストアをブロック」ボタン | `docs/evidence/t3-button-injected.png` / `t3-blocked.png` 相当 | 商品ページの「このストアをブロック」ボタンでワンクリック登録 | 完了済み(t3) |
+| 3 | ポップアップ：ブロック中ストア一覧 | `docs/evidence/t6-popup-added.png` 相当 | ブロック中のストアはポップアップでいつでも確認・削除 | 完了済み(t6) |
+| 4 | ブロック済み商品のプレースホルダー表示 | 未撮影（r2で撮影） | ブロック済み商品は控えめなプレースホルダーに置き換え | r1完了後 |
+| 5 | 完全非表示（collapse）モード切替 | 未撮影（r2で撮影） | 完全に消して空間を詰める表示に切替も可能 | r1・r2完了後 |
+
+**掲載方針**: 1枚目は必ず「検索結果からストアが消える」という中核体験を見せる（最初の1枚が最も見られる）。2・3枚目で操作方法（ブロックの追加・管理）を示す。4・5枚目は r1 完了後の追加機能としてストア公開直前（r7）に差し替え可能。1〜3のみでも提出可能な最小構成として扱ってよい。
