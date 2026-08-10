@@ -6,3 +6,6 @@ node_modules/
 .codex-sidecar.yml
 .team/
 .mcp.json
+
+# 配布ZIPの出力先(r5-package)
+dist/
