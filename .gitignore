@@ -9,3 +9,6 @@ node_modules/
 
 # 配布ZIPの出力先(r5-package)
 dist/
+
+# 画面キャプチャツールの既定出力(デスクトップ全体が写るため絶対にコミットしない)
+screenshot-mon*.png
