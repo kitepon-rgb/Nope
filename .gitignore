@@ -1,0 +1,8 @@
+# 依存関係
+node_modules/
+
+# 開発体制（円卓運営）専用のツール設定。配布物・プロダクトには無関係
+.claude/
+.codex-sidecar.yml
+.team/
+.mcp.json
