@@ -1,0 +1,2 @@
+# Lattice storeはcanonical JSON+LFのバイト列契約。EOL変換されるとstore全体がfail closedする。
+.lattice/** -text
