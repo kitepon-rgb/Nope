@@ -11,6 +11,24 @@ h1 {
   margin: 0 0 8px;
 }
 
+.cb-display-mode {
+  margin: 0 0 8px;
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.cb-display-mode legend {
+  padding: 0 4px;
+  font-size: 11px;
+  color: #666;
+}
+
+.cb-display-mode label {
+  display: block;
+  padding: 2px 0;
+}
+
 #add-form {
   display: flex;
   flex-wrap: wrap;

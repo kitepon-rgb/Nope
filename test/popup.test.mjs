@@ -31,6 +31,8 @@ function makeFakeStorage(initialBlocked) {
   return {
     async getBlockedStores() { return { ...blocked }; },
     async removeBlockedStore(storeId) { delete blocked[storeId]; },
+    async getDisplayMode() { return 'placeholder'; },
+    async setDisplayMode() {},
   };
 }
 
@@ -39,8 +41,9 @@ function loadPopup(storage) {
     document: {
       getElementById: () => makeFakeListEl(),
       createElement: () => makeFakeElement(),
+      querySelectorAll: () => [],
     },
-    CB_STORAGE: storage ?? { getBlockedStores: async () => ({}) },
+    CB_STORAGE: storage ?? { getBlockedStores: async () => ({}), getDisplayMode: async () => 'placeholder' },
   });
   vm.runInContext(readFileSync(SRC, 'utf8'), context);
   return vm.runInContext('CB_POPUP', context);
@@ -110,4 +113,45 @@ test('renderListの削除ボタンでstoreを消して再描画する', async ()
   await removeBtn.fireClick();
   assert.deepEqual(await storage.getBlockedStores(), {});
   assert.equal(listEl.children[0].textContent, 'ブロック中のストアはありません');
+});
+
+function makeFakeRadio(value) {
+  const listeners = {};
+  return {
+    value,
+    checked: false,
+    addEventListener(type, handler) { listeners[type] = handler; },
+    fireChange() { return listeners.change(); },
+  };
+}
+
+test('bindDisplayModeControlは現在のdisplayModeに応じてラジオのcheckedを設定する', async () => {
+  const popup = loadPopup();
+  const radios = [makeFakeRadio('placeholder'), makeFakeRadio('collapse')];
+  const storage = { getDisplayMode: async () => 'collapse', setDisplayMode: async () => {} };
+  await popup.bindDisplayModeControl(radios, storage);
+  assert.equal(radios[0].checked, false);
+  assert.equal(radios[1].checked, true);
+});
+
+test('bindDisplayModeControlはラジオのchangeでsetDisplayModeを呼ぶ', async () => {
+  const popup = loadPopup();
+  let savedMode = null;
+  const radios = [makeFakeRadio('placeholder'), makeFakeRadio('collapse')];
+  const storage = { getDisplayMode: async () => 'placeholder', setDisplayMode: async (mode) => { savedMode = mode; } };
+  await popup.bindDisplayModeControl(radios, storage);
+  radios[1].checked = true;
+  await radios[1].fireChange();
+  assert.equal(savedMode, 'collapse');
+});
+
+test('bindDisplayModeControlはcheckedでないラジオのchangeではsetDisplayModeを呼ばない', async () => {
+  const popup = loadPopup();
+  let called = false;
+  const radios = [makeFakeRadio('placeholder'), makeFakeRadio('collapse')];
+  const storage = { getDisplayMode: async () => 'placeholder', setDisplayMode: async () => { called = true; } };
+  await popup.bindDisplayModeControl(radios, storage);
+  // radios[1]はcheckedのままfalse（ユーザーが選んでいない想定）でイベントだけ発火。
+  await radios[1].fireChange();
+  assert.equal(called, false);
 });

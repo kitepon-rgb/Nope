@@ -20,9 +20,12 @@ function chromeMock() {
     },
     async set(values) {
       Object.assign(areas[name], values);
-      if (name === 'sync' && values.blockedStores) {
-        const changes = { blockedStores: { newValue: values.blockedStores } };
-        for (const listener of listeners) listener(changes, 'sync');
+      if (name === 'sync') {
+        const changes = {};
+        for (const key of Object.keys(values)) changes[key] = { newValue: values[key] };
+        if (Object.keys(changes).length) {
+          for (const listener of listeners) listener(changes, 'sync');
+        }
       }
     },
     async remove(key) { delete areas[name][key]; },
@@ -91,5 +94,39 @@ test('onBlockedStoresChangedはsync変更で発火し解除関数で止まる', 
   assert.equal(seen[0]['7'].name, 'S');
   unsubscribe();
   await storage.addBlockedStore('8', 'T');
+  assert.equal(seen.length, 1);
+});
+
+test('getDisplayModeは未設定時に既定値placeholderを返す', async () => {
+  const storage = loadStorage(chromeMock());
+  assert.equal(await storage.getDisplayMode(), 'placeholder');
+});
+
+test('setDisplayModeで保存した値をgetDisplayModeが返す', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.setDisplayMode('collapse');
+  assert.equal(mock.areas.sync.displayMode, 'collapse');
+  assert.equal(await storage.getDisplayMode(), 'collapse');
+});
+
+test('displayModeに不明値を渡すと既定値へフォールバックする', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.setDisplayMode('bogus-mode');
+  assert.equal(mock.areas.sync.displayMode, 'placeholder');
+  assert.equal(await storage.getDisplayMode(), 'placeholder');
+});
+
+test('onDisplayModeChangedはsync変更で発火し解除関数で止まる', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  const seen = [];
+  const unsubscribe = storage.onDisplayModeChanged((value) => seen.push(value));
+  await storage.setDisplayMode('collapse');
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0], 'collapse');
+  unsubscribe();
+  await storage.setDisplayMode('placeholder');
   assert.equal(seen.length, 1);
 });

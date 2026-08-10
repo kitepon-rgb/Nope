@@ -59,6 +59,17 @@ const CB_POPUP = (() => {
     }
   }
 
+  /** 現在のdisplayModeに応じてラジオのcheckedを設定し、changeでsetDisplayModeを呼ぶ。 @param {Array<{value:string,checked:boolean,addEventListener:Function}>} radios @param {typeof CB_STORAGE} storage */
+  async function bindDisplayModeControl(radios, storage) {
+    const current = await storage.getDisplayMode();
+    for (const radio of radios) {
+      radio.checked = radio.value === current;
+      radio.addEventListener('change', async () => {
+        if (radio.checked) await storage.setDisplayMode(radio.value);
+      });
+    }
+  }
+
   function init() {
     const listEl = document.getElementById('store-list');
     const form = document.getElementById('add-form');
@@ -66,6 +77,7 @@ const CB_POPUP = (() => {
     const nameInput = document.getElementById('add-name');
     const clearCacheBtn = document.getElementById('clear-cache');
     const statusEl = document.getElementById('status');
+    const displayModeRadios = document.querySelectorAll('input[name="display-mode"]');
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -86,10 +98,11 @@ const CB_POPUP = (() => {
       statusEl.textContent = 'キャッシュをクリアしました';
     });
 
+    bindDisplayModeControl(displayModeRadios, CB_STORAGE);
     renderList(listEl);
   }
 
-  return { parseStoreInput, formatDate, sortEntries, renderList, init };
+  return { parseStoreInput, formatDate, sortEntries, renderList, bindDisplayModeControl, init };
 })();
 
 CB_POPUP.init();

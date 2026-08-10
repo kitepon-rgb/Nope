@@ -8,6 +8,12 @@
 <body>
   <h1>ChromeBlocker</h1>
 
+  <fieldset id="display-mode-group" class="cb-display-mode">
+    <legend>ブロック済みの表示</legend>
+    <label><input type="radio" name="display-mode" value="placeholder" id="mode-placeholder"> あっかんべー表示</label>
+    <label><input type="radio" name="display-mode" value="collapse" id="mode-collapse"> 完全に消す</label>
+  </fieldset>
+
   <form id="add-form">
     <input type="text" id="add-input" placeholder="ストアURL または ID" required>
     <input type="text" id="add-name" placeholder="名前（任意）">

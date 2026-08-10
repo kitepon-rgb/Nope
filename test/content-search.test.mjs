@@ -14,8 +14,43 @@ class FakeMutationObserver {
   disconnect() {}
 }
 
+// applyVisibility の placeholder モードが document.createElement / wrapper.appendChild /
+// wrapper.querySelector / 子要素の style.display を操作するための最小 fake DOM。
+// 実DOMに合わせ、style.display の初期値は ''（未設定なら空文字）、remove() は親の children から実際に取り除く。
+function makeFakeElement(tagName) {
+  const el = {
+    tagName,
+    className: '',
+    style: { display: '' },
+    textContent: '',
+    innerHTML: '',
+    children: [],
+    parent: null,
+    listeners: {},
+    appendChild(child) { child.parent = el; el.children.push(child); return child; },
+    addEventListener(type, fn) { el.listeners[type] = fn; },
+    remove() {
+      if (el.parent) {
+        el.parent.children = el.parent.children.filter((c) => c !== el);
+        el.parent = null;
+      }
+    },
+    querySelector(selector) {
+      const match = /\.([\w-]+)/.exec(selector);
+      const cls = match ? match[1] : selector;
+      return el.children.find((c) => c.className === cls) || null;
+    },
+  };
+  return el;
+}
+
+function makeFakeDocument() {
+  return { createElement: (tag) => makeFakeElement(tag) };
+}
+
 function makeFakeWrapper() {
-  return { style: {} };
+  const wrapper = makeFakeElement('div');
+  return wrapper;
 }
 
 function makeFakeLink(href, wrapper) {
@@ -28,12 +63,18 @@ function makeFakeLink(href, wrapper) {
 
 function loadContentSearch() {
   const context = vm.createContext({
-    document: { querySelectorAll: () => [], body: {} },
+    document: Object.assign({ querySelectorAll: () => [], body: {} }, makeFakeDocument()),
     MutationObserver: FakeMutationObserver,
     setTimeout: (fn) => { fn(); return 0; },
     clearTimeout: () => {},
     console,
-    CB_STORAGE: { getBlockedStores: async () => ({}), getCachedStore: async () => null, onBlockedStoresChanged: () => {} },
+    CB_STORAGE: {
+      getBlockedStores: async () => ({}),
+      getCachedStore: async () => null,
+      onBlockedStoresChanged: () => {},
+      getDisplayMode: async () => 'placeholder',
+      onDisplayModeChanged: () => {},
+    },
     CB_MTOP: { resolveStoreId: async () => { throw new Error('not stubbed'); } },
   });
   vm.runInContext(readFileSync(SRC, 'utf8'), context);
@@ -48,26 +89,133 @@ test('extractProductIdは/item/<id>.htmlからproductIdを取り出す', () => {
   assert.equal(search.extractProductId(''), null);
 });
 
-test('findWrapperはclosestで.card-out-wrapperを取る、無ければparentElementにフォールバック', () => {
+test('findWrapperは[class*="search-item-card-wrapper"]を最優先で使う', () => {
   const search = loadContentSearch();
-  const wrapper = { tag: 'wrapper' };
-  assert.equal(search.findWrapper({ closest: () => wrapper, parentElement: { tag: 'parent' } }), wrapper);
-  assert.equal(search.findWrapper({ closest: () => null, parentElement: { tag: 'parent' } }).tag, 'parent');
+  const searchCardWrapper = { tag: 'search-card' };
+  const cardOutWrapper = { tag: 'card-out' };
+  const link = {
+    closest: (selector) => {
+      if (selector.includes('search-item-card-wrapper')) return searchCardWrapper;
+      if (selector === '.card-out-wrapper') return cardOutWrapper;
+      return null;
+    },
+    parentElement: { tag: 'parent' },
+  };
+  assert.equal(search.findWrapper(link), searchCardWrapper);
+});
+
+test('findWrapperはsearch-item-card-wrapperが無ければ.card-out-wrapperへフォールバックする', () => {
+  const search = loadContentSearch();
+  const cardOutWrapper = { tag: 'card-out' };
+  const link = {
+    closest: (selector) => (selector === '.card-out-wrapper' ? cardOutWrapper : null),
+    parentElement: { tag: 'parent' },
+  };
+  assert.equal(search.findWrapper(link), cardOutWrapper);
+});
+
+test('findWrapperはclosestが両方とも無ければparentElementへフォールバックする', () => {
+  const search = loadContentSearch();
+  const link = { closest: () => null, parentElement: { tag: 'parent' } };
+  assert.equal(search.findWrapper(link).tag, 'parent');
+});
+
+test('findWrapperはclosestもparentElementも無ければnullを返す', () => {
+  const search = loadContentSearch();
   assert.equal(search.findWrapper({ parentElement: null }), null);
 });
 
-test('applyVisibilityはblocked=trueでdisplay:noneにし、falseで解除する', () => {
+test('applyVisibilityはcollapseモードでblocked=trueならdisplay:noneにしfalseで解除する', () => {
+  const search = loadContentSearch();
+  const wrapper = makeFakeWrapper();
+  search.applyVisibility(wrapper, true, { mode: 'collapse' });
+  assert.equal(wrapper.style.display, 'none');
+  search.applyVisibility(wrapper, false, { mode: 'collapse' });
+  assert.equal(wrapper.style.display, '');
+});
+
+test('applyVisibilityはmode省略時は既定のplaceholderモードで動作する', () => {
   const search = loadContentSearch();
   const wrapper = makeFakeWrapper();
   search.applyVisibility(wrapper, true);
-  assert.equal(wrapper.style.display, 'none');
-  search.applyVisibility(wrapper, false);
   assert.equal(wrapper.style.display, '');
+  assert.ok(wrapper.children.some((c) => c.className === 'cb-blocked-placeholder'));
 });
 
 test('applyVisibilityはwrapperがnullでも例外を出さない', () => {
   const search = loadContentSearch();
-  assert.doesNotThrow(() => search.applyVisibility(null, true));
+  assert.doesNotThrow(() => search.applyVisibility(null, true, { mode: 'collapse' }));
+  assert.doesNotThrow(() => search.applyVisibility(null, true, { mode: 'placeholder' }));
+});
+
+test('applyVisibilityのplaceholderモードはwrapperを表示のままプレースホルダーを挿入する', () => {
+  const search = loadContentSearch();
+  const wrapper = makeFakeWrapper();
+  search.applyVisibility(wrapper, true, { mode: 'placeholder', storeName: 'Evil Store' });
+  assert.equal(wrapper.style.display, '');
+  const placeholder = wrapper.children.find((c) => c.className === 'cb-blocked-placeholder');
+  assert.ok(placeholder);
+});
+
+test('applyVisibilityのplaceholderはストア名をtextContentで入れる(innerHTMLに混ぜない)', () => {
+  const search = loadContentSearch();
+  const wrapper = makeFakeWrapper();
+  const dangerous = '<script>alert(1)</script>';
+  search.applyVisibility(wrapper, true, { mode: 'placeholder', storeName: dangerous });
+  const placeholder = wrapper.children.find((c) => c.className === 'cb-blocked-placeholder');
+  const nameEl = placeholder.children.find((c) => c.textContent === dangerous);
+  assert.ok(nameEl);
+  assert.ok(!placeholder.innerHTML.includes(dangerous));
+});
+
+test('applyVisibilityのplaceholderは二重挿入しない', () => {
+  const search = loadContentSearch();
+  const wrapper = makeFakeWrapper();
+  search.applyVisibility(wrapper, true, { mode: 'placeholder' });
+  search.applyVisibility(wrapper, true, { mode: 'placeholder' });
+  const placeholders = wrapper.children.filter((c) => c.className === 'cb-blocked-placeholder');
+  assert.equal(placeholders.length, 1);
+});
+
+test('applyVisibilityのplaceholderはblocked=falseで元の子要素を復元しプレースホルダーを取り除く', () => {
+  const search = loadContentSearch();
+  const wrapper = makeFakeWrapper();
+  const originalChild = makeFakeElement('div');
+  wrapper.children.push(originalChild);
+  search.applyVisibility(wrapper, true, { mode: 'placeholder' });
+  assert.equal(originalChild.style.display, 'none');
+  search.applyVisibility(wrapper, false, { mode: 'placeholder' });
+  assert.equal(originalChild.style.display, '');
+  assert.equal(wrapper.children.some((c) => c.className === 'cb-blocked-placeholder'), false);
+});
+
+test('applyVisibilityのplaceholderの解除ボタンはonUnblockを呼びpreventDefault/stopPropagationする', () => {
+  const search = loadContentSearch();
+  const wrapper = makeFakeWrapper();
+  let called = false;
+  search.applyVisibility(wrapper, true, { mode: 'placeholder', onUnblock: () => { called = true; } });
+  const placeholder = wrapper.children.find((c) => c.className === 'cb-blocked-placeholder');
+  const button = placeholder.children.find((c) => c.textContent === 'ブロック解除');
+  assert.ok(button);
+  let prevented = false;
+  let stopped = false;
+  button.listeners.click({ preventDefault: () => { prevented = true; }, stopPropagation: () => { stopped = true; } });
+  assert.ok(called);
+  assert.ok(prevented);
+  assert.ok(stopped);
+});
+
+test('applyVisibilityはcollapseモードへ切替時にplaceholderが残っていれば取り除いて復元する', () => {
+  const search = loadContentSearch();
+  const wrapper = makeFakeWrapper();
+  const originalChild = makeFakeElement('div');
+  wrapper.children.push(originalChild);
+  search.applyVisibility(wrapper, true, { mode: 'placeholder' });
+  assert.ok(wrapper.children.some((c) => c.className === 'cb-blocked-placeholder'));
+  search.applyVisibility(wrapper, true, { mode: 'collapse' });
+  assert.equal(wrapper.style.display, 'none');
+  assert.equal(wrapper.children.some((c) => c.className === 'cb-blocked-placeholder'), false);
+  assert.equal(originalChild.style.display, '');
 });
 
 test('createResolveQueueは同時実行数をconcurrencyまでに制限する', async () => {
@@ -128,6 +276,8 @@ test('scanはキャッシュ命中カードを即ブロック判定して非表�
     getBlockedStores: async () => ({ 999: { name: 'Blocked Store', addedAt: 0 } }),
     getCachedStore: async (productId) => (productId === '111' ? '999' : null),
     onBlockedStoresChanged: () => {},
+    getDisplayMode: async () => 'collapse',
+    onDisplayModeChanged: () => {},
   };
   const doc = { querySelectorAll: () => [link], body: {} };
   const controller = search.init({ document: doc, storage, mtop: { resolveStoreId: async () => { throw new Error('呼ばれないはず'); } } });
@@ -144,6 +294,8 @@ test('scanは未ブロックstoreのカードを表示のままにする', async
     getBlockedStores: async () => ({}),
     getCachedStore: async () => '888',
     onBlockedStoresChanged: () => {},
+    getDisplayMode: async () => 'collapse',
+    onDisplayModeChanged: () => {},
   };
   const doc = { querySelectorAll: () => [link], body: {} };
   const controller = search.init({ document: doc, storage, mtop: { resolveStoreId: async () => { throw new Error('呼ばれないはず'); } } });
@@ -160,6 +312,8 @@ test('scanはcache未ヒットならmtop.resolveStoreIdで解決して判定す�
     getBlockedStores: async () => ({ 777: { name: 'Blocked', addedAt: 0 } }),
     getCachedStore: async () => null,
     onBlockedStoresChanged: () => {},
+    getDisplayMode: async () => 'collapse',
+    onDisplayModeChanged: () => {},
   };
   const mtop = { resolveStoreId: async (productId) => (productId === '333' ? '777' : null) };
   const doc = { querySelectorAll: () => [link], body: {} };
@@ -179,6 +333,8 @@ test('blockedStoresの変更で既知カードへ即時再適用する', async (
     getBlockedStores: async () => ({}),
     getCachedStore: async () => '555',
     onBlockedStoresChanged: (fn) => { changeListener = fn; },
+    getDisplayMode: async () => 'collapse',
+    onDisplayModeChanged: () => {},
   };
   const doc = { querySelectorAll: () => [link], body: {} };
   const controller = search.init({ document: doc, storage, mtop: { resolveStoreId: async () => { throw new Error('呼ばれないはず'); } } });
@@ -191,4 +347,29 @@ test('blockedStoresの変更で既知カードへ即時再適用する', async (
 
   changeListener({});
   assert.equal(wrapper.style.display, '');
+});
+
+test('displayModeの変更で既知カードへ即時再適用する（collapse→placeholder）', async () => {
+  const search = loadContentSearch();
+  const wrapper = makeFakeWrapper();
+  const link = makeFakeLink('https://ja.aliexpress.com/item/666.html', wrapper);
+  let modeListener = null;
+  const storage = {
+    getBlockedStores: async () => ({ 555: { name: 'X', addedAt: 0 } }),
+    getCachedStore: async () => '555',
+    onBlockedStoresChanged: () => {},
+    getDisplayMode: async () => 'collapse',
+    onDisplayModeChanged: (fn) => { modeListener = fn; },
+    removeBlockedStore: async () => {},
+  };
+  const doc = { querySelectorAll: () => [link], body: {} };
+  const controller = search.init({ document: doc, storage, mtop: { resolveStoreId: async () => { throw new Error('呼ばれないはず'); } } });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(wrapper.style.display, 'none');
+  assert.equal(wrapper.children.some((c) => c.className === 'cb-blocked-placeholder'), false);
+
+  modeListener('placeholder');
+  assert.equal(wrapper.style.display, '');
+  assert.ok(wrapper.children.some((c) => c.className === 'cb-blocked-placeholder'));
 });

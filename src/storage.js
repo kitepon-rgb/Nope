@@ -7,6 +7,15 @@
 
 const CB_STORAGE = (() => {
   const CACHE_LIMIT = 5000;
+  const DEFAULT_DISPLAY_MODE = 'placeholder';
+  const ALLOWED_DISPLAY_MODES = ['placeholder', 'collapse'];
+
+  /** 不明値は既定 'placeholder' 扱いにするが黙って通さずconsole.warnする。 @param {string} mode */
+  function normalizeDisplayMode(mode) {
+    if (ALLOWED_DISPLAY_MODES.includes(mode)) return mode;
+    console.warn(`storage: 不明なdisplayModeを既定値へフォールバックします value=${mode}`);
+    return DEFAULT_DISPLAY_MODE;
+  }
 
   async function getBlockedStores() {
     const { blockedStores } = await chrome.storage.sync.get({ blockedStores: {} });
@@ -57,8 +66,29 @@ const CB_STORAGE = (() => {
     return () => chrome.storage.onChanged.removeListener(wrapped);
   }
 
+  async function getDisplayMode() {
+    const { displayMode } = await chrome.storage.sync.get({ displayMode: DEFAULT_DISPLAY_MODE });
+    return normalizeDisplayMode(displayMode);
+  }
+
+  async function setDisplayMode(mode) {
+    const normalized = normalizeDisplayMode(mode);
+    await chrome.storage.sync.set({ displayMode: normalized });
+    return normalized;
+  }
+
+  // displayMode の変更を購読する（検索ページの即時再適用用）。解除関数を返す。
+  function onDisplayModeChanged(listener) {
+    const wrapped = (changes, area) => {
+      if (area === 'sync' && changes.displayMode) listener(normalizeDisplayMode(changes.displayMode.newValue));
+    };
+    chrome.storage.onChanged.addListener(wrapped);
+    return () => chrome.storage.onChanged.removeListener(wrapped);
+  }
+
   return {
     getBlockedStores, addBlockedStore, removeBlockedStore,
     getCachedStore, setCachedStore, clearCache, onBlockedStoresChanged,
+    getDisplayMode, setDisplayMode, onDisplayModeChanged,
   };
 })();
