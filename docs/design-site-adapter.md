@@ -482,6 +482,8 @@ setCachedSource(siteKey, itemId, sourceId)
 
 1つのアダプタオブジェクトが複数セレクタを持つ形式（`{ cardSelector: ['ytd-video-renderer', 'yt-lockup-view-model'], resolvers: { ... } }`）にするか、面ごとに別アダプタにして同じ siteKey を共有させるかは v2-refactor で決める。
 
+**→ v4 で確定（2026-08-11 shiho）**: 面ごとに別アダプタ・siteKey は `'youtube'` で共有する形に決定。`src/adapters/youtube.js`（パターンA・検索結果、v3-adapter-id）と `src/adapters/youtube_watch.js`（パターンB・視聴ページ関連動画、v4-adapter-name）が独立したファイルとして共存する。
+
 ### YouTube handle↔channelId 正規化
 
 §3-3 参照。v2 で YouTube Data API を使った正規化を実装する。
@@ -497,6 +499,21 @@ setCachedSource(siteKey, itemId, sourceId)
 ### キーワードブロック（roadmap #2）
 
 Yahoo/Yahoo ニュースの特定キーワードでのコンテンツブロック。カードのタイトルテキストに対する部分一致が基本になる。全角/半角・大文字小文字の正規化方針は v4-adapter-name で決める。
+
+**→ v4 で確定（2026-08-11 shiho）**: 一致方式は部分一致、大文字小文字は区別しない（toLowerCase）、全角半角は区別しない（NFKC 正規化）、複数キーワードは OR。保存は生文字列のまま（正規化はマッチング時にエンジン側で行う）。storage キー: `blockedKeywords[siteKey]: string[]`。実装: `src/keyword-filter.js`。
+
+### パターンBエンジンの分離（v4 確定）
+
+設計時点ではエンジン実装の粒度を確定していなかったが、v4-adapter-name 実装（2026-08-11 shiho）で確定した。
+
+**決定**: パターンBは既存の `src/content-search.js`（パターンC専用）に統合せず、`src/content-name.js` として別エンジンを新設する。
+
+理由:
+1. `content-search.js` はパターンCの非同期解決のための async queue（2並列・300ms 間隔制御）を内包しており、パターンB（同期解決）を混在させると条件分岐が複雑になりエラー追跡が困難になる
+2. `manifest.json` の `content_scripts` は面ごとに別エントリ（独立したコンテキスト）で動く設計のため、ファイル分離は自然な境界
+3. テストが独立して書きやすい
+
+§2-2 のアダプタ契約（`resolver: PatternA | PatternB | PatternC`）は変わらない。エンジンの実装が2ファイルになったことを示す追加情報。
 
 ---
 
