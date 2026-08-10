@@ -10,20 +10,30 @@
 
   <fieldset id="display-mode-group" class="cb-display-mode">
     <legend>ブロック済みの表示</legend>
-    <label><input type="radio" name="display-mode" value="placeholder" id="mode-placeholder"> あっかんべー表示</label>
-    <label><input type="radio" name="display-mode" value="collapse" id="mode-collapse"> 完全に消す</label>
+    <label><input type="radio" name="display-mode" value="placeholder" id="mode-placeholder"> ブロック表示に置き換え</label>
+    <label><input type="radio" name="display-mode" value="collapse" id="mode-collapse"> 非表示にして詰める</label>
   </fieldset>
 
-  <form id="add-form">
-    <input type="text" id="add-input" placeholder="ストアURL または ID" required>
-    <input type="text" id="add-name" placeholder="名前（任意）">
-    <button type="submit">追加</button>
-  </form>
-  <p id="status" class="cb-status"></p>
+  <section class="cb-section">
+    <p class="cb-label">ADD STORE</p>
+    <form id="add-form">
+      <input type="text" id="add-input" placeholder="ストアURL または ID" required>
+      <input type="text" id="add-name" placeholder="名前（任意）">
+      <button type="submit">追加</button>
+    </form>
+    <p id="status" class="cb-status"></p>
+  </section>
 
-  <ul id="store-list"></ul>
+  <section class="cb-section">
+    <p class="cb-label">BLOCKED</p>
+    <ul id="store-list"></ul>
+  </section>
 
   <button type="button" id="clear-cache">キャッシュクリア</button>
+
+  <footer class="cb-footer">
+    <a href="https://kitepon.dev" target="_blank" rel="noopener" class="cb-footer-link">kitepon.dev</a>
+  </footer>
 
   <script src="../src/storage.js"></script>
   <script src="popup.js"></script>
