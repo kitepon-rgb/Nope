@@ -392,16 +392,84 @@ const CB_SEARCH = (() => {
     floatingButton.style.bottom = `${Math.max(0, viewportHeight - rect.bottom + FLOATING_INSET_PX)}px`;
   }
 
+  /**
+   * pointer click時は共有buttonが保持していたctxを信用せず、実クリック地点（またはbutton中心）の
+   * 下にある登録済みcardをelementsFromPointで再同定する。YouTubeのhover preview/DOM更新により
+   * buttonの見た目とfloatingHoverCtxがずれた時、別チャンネルを登録する事故を防ぐ。
+   * keyboard activation(detail===0)はfocusinで確定したcardを使う。
+   */
+  function resolveFloatingClickTarget(doc, event) {
+    const current = floatingHoverCard && floatingHoverCtx
+      ? { card: floatingHoverCard, ctx: floatingHoverCtx }
+      : null;
+    const pointerActivation = event && Number(event.detail) > 0;
+    if (!pointerActivation) return current;
+    if (!doc || typeof doc.elementsFromPoint !== 'function') return null;
+
+    const points = [];
+    if (Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+      points.push({ x: event.clientX, y: event.clientY });
+    }
+    if (floatingButton && typeof floatingButton.getBoundingClientRect === 'function') {
+      const rect = floatingButton.getBoundingClientRect();
+      points.push({ x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 });
+    }
+
+    for (const point of points) {
+      const elements = doc.elementsFromPoint(point.x, point.y) || [];
+      // 通常のChromeでは祖先card自体もelementsFromPointへ含まれるため、まず直接一致を優先する。
+      for (const element of elements) {
+        if (!floatingRegisteredCards.has(element)) continue;
+        const ctx = floatingContextByCard.get(element);
+        if (ctx) return { card: element, ctx };
+      }
+      // DOM構造差でcard自身が列挙されない場合だけ、列挙要素を包含する登録済みcardを探す。
+      for (const element of elements) {
+        for (const card of floatingRegisteredCards) {
+          if (typeof card.contains !== 'function' || !card.contains(element)) continue;
+          const ctx = floatingContextByCard.get(card);
+          if (ctx) return { card, ctx };
+        }
+      }
+    }
+    return null;
+  }
+
   /** クリック時のブロック/解除処理。ensureRegisterButtonのクリックハンドラと同じ契約
-   * （安定IDのクリック時解決・部分登録禁止・即時反映）をfloatingHoverCtx経由で実行する。 */
-  async function handleFloatingButtonClick(event) {
+   * （安定IDのクリック時解決・部分登録禁止・即時反映）を、クリック地点で再同定したctxで実行する。 */
+  async function handleFloatingButtonClick(doc, event) {
     if (event) {
       if (event.preventDefault) event.preventDefault();
       if (event.stopPropagation) event.stopPropagation();
     }
-    const ctx = floatingHoverCtx;
-    if (!ctx || ctx.resolutionFailed) return;
     const button = floatingButton;
+    const target = resolveFloatingClickTarget(doc, event);
+    if (!target) {
+      console.warn('content-search: クリック地点の対象カードを再同定できませんでした。誤登録を防ぐため操作を中止します');
+      if (button) {
+        button.textContent = '⚠ 対象を確認できません';
+        button.title = '対象カードを確認できなかったため、ブロック操作を中止しました';
+        button.disabled = true;
+      }
+      return;
+    }
+    const { card } = target;
+    let { ctx } = target;
+    if (ctx && typeof ctx.refreshBeforeToggle === 'function') {
+      try {
+        ctx = await ctx.refreshBeforeToggle();
+      } catch (err) {
+        console.warn('content-search: クリック直前の対象カード再検証に失敗しました。誤登録を防ぐため操作を中止します', err);
+        button.textContent = '⚠ 対象を確認できません';
+        button.title = '対象カードを再確認できなかったため、ブロック操作を中止しました';
+        button.disabled = true;
+        return;
+      }
+    }
+    if (!ctx || ctx.resolutionFailed) return;
+    if (card !== floatingHoverCard || ctx !== floatingHoverCtx) {
+      showFloatingButtonForCard(doc, card, ctx, floatingHoverReason || 'pointer');
+    }
     button.disabled = true;
     let keepDisabled = false;
     try {
@@ -454,7 +522,7 @@ const CB_SEARCH = (() => {
       }
       evaluateFloatingPointerHover(doc);
     });
-    button.addEventListener('click', handleFloatingButtonClick);
+    button.addEventListener('click', (event) => handleFloatingButtonClick(doc, event));
     if (doc.body && doc.body.appendChild) doc.body.appendChild(button);
     floatingButton = button;
     return button;
@@ -865,6 +933,13 @@ const CB_SEARCH = (() => {
             directCardInfo.set(card, { ...info, resolutionFailed: true });
             applyDirectCard(card);
           } : undefined,
+          // YouTubeは同じcard要素の内部だけを別動画へ差し替える。クリック直前にresolverを
+          // 再実行し、初回scan時のctxで別チャンネルを登録しない（オーナー実Chrome差し戻し）。
+          refreshBeforeToggle: isFloatingRegister ? () => {
+            const refreshed = handleDirectCard(card);
+            if (!refreshed) throw new Error(`content-search: 現在のカードから発信元を取得できません siteKey=${siteKey}`);
+            return refreshed;
+          } : undefined,
           onToggled: async () => {
             blockedSources = await storage.getBlockedSources(siteKey);
             applyDirectCard(card);
@@ -882,11 +957,29 @@ const CB_SEARCH = (() => {
     }
 
     function handleDirectCard(card) {
-      if (directCardInfo.has(card)) return;
       const source = resolver.getSource(card);
-      if (!source) return;
+      const previous = directCardInfo.get(card);
+      if (!source) {
+        if (previous) {
+          applyVisibility(previous.wrapper, false, { mode: displayMode });
+          directCardInfo.delete(card);
+          floatingContextByCard.delete(card);
+          floatingRegisteredCards.delete(card);
+          if (floatingHoverCard === card) hideFloatingButtonNow();
+        }
+        return null;
+      }
       const wrapper = getWrapper(card);
-      if (!wrapper) return;
+      if (!wrapper) return null;
+
+      // YouTubeはcard要素を維持したまま内部の動画・チャンネルだけ差し替えるため、element identity
+      // だけでは処理済み判定にできない。生ID・表示名・wrapperが同じ時だけ既存ctxを再利用する。
+      if (previous
+          && previous.rawSourceId === source.sourceId
+          && previous.sourceName === source.sourceName
+          && previous.wrapper === wrapper) {
+        return floatingContextByCard.get(card) || null;
+      }
 
       // 同期通信は一切しない。既知aliasの参照だけ（未知ならsourceId: null=「未確認」のまま表示）。
       directCardInfo.set(card, {
@@ -896,6 +989,7 @@ const CB_SEARCH = (() => {
         wrapper,
       });
       applyDirectCard(card);
+      return floatingContextByCard.get(card) || null;
     }
 
     function handleAsyncCard(card) {

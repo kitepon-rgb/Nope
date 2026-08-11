@@ -884,3 +884,135 @@ test('【yt-contract-tests】検索結果カードとホームカードが混在
   assert.equal(buttonsInBody.length, 1, '検索・ホーム混在でfloating buttonが複数生成されている');
 });
 
+// オーナー実Chrome差し戻し（2026-08-11）: ホームで押したカードとは別のチャンネルが
+// ブラックリストへ登録された。共有buttonの表示中にYouTube側のhover previewやDOM更新が重なると、
+// floatingHoverCtxが直前カードのまま残る可能性がある。マウスクリック時はbuttonの下に実在する
+// 登録済みカードをdocument.elementsFromPointで再同定し、その最新ctxを操作対象にしなければならない。
+test('【yt-contract-tests/red】floating buttonのctxが古くてもクリック位置のカード以外をブロックしない', async () => {
+  const search = loadContentSearch();
+  const staleCard = makeFakeHomeCardWrapper(300, {
+    top: 0, left: 0, right: 400, bottom: 300, width: 400, height: 300,
+  });
+  staleCard.__source = { sourceId: '@Formula1', sourceName: 'FORMULA 1' };
+  const clickedCard = makeFakeHomeCardWrapper(300, {
+    top: 400, left: 0, right: 400, bottom: 700, width: 400, height: 300,
+  });
+  clickedCard.__source = { sourceId: '@TBS', sourceName: 'TBS' };
+
+  const canonicalized = [];
+  const adapter = makeCanonicalizingAdapter(async (rawId) => {
+    canonicalized.push(rawId);
+    return rawId === '@TBS' ? 'UCTBS' : 'UCFORMULA1';
+  });
+  const added = [];
+  const storage = makeAliasAwareStorage({
+    addBlockedSource: async (siteKey, sourceId, sourceName) => {
+      added.push({ siteKey, sourceId, sourceName });
+    },
+  });
+  const body = makeFakeBody();
+  const doc = makeFakeDoc({ getCards: () => [staleCard, clickedCard], body });
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+
+  // まず別カードをhoverして共有buttonへ古いctxを持たせる。
+  movePointerOverCard(doc, staleCard);
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
+  assert.equal(button.title, 'FORMULA 1 のブロックを切り替える', '前提: stale ctxがbuttonへ入っていない');
+
+  // 実クリック地点の最前面にはbody直下button、その直下にはユーザーが押したTBSカードがある。
+  doc.elementsFromPoint = () => [button, clickedCard];
+  await button.listeners.click({
+    clientX: 200,
+    clientY: 550,
+    detail: 1,
+    preventDefault() {},
+    stopPropagation() {},
+  });
+
+  assert.deepEqual(canonicalized, ['@TBS'], '古いFORMULA 1のctxをcanonicalizeしている');
+  assert.deepEqual(added, [{ siteKey: 'youtube', sourceId: 'UCTBS', sourceName: 'TBS' }],
+    'クリック地点のTBSではなく、古いFORMULA 1をブラックリストへ登録している');
+});
+
+// YouTubeは同じytd-rich-item-renderer要素を維持したまま内部の動画・チャンネルだけを差し替える。
+// card要素のidentityだけでctxをキャッシュすると、見た目はTBSでも内部ctxは以前のFORMULA 1となる。
+// MutationObserverのscanより先に押される競合もあるため、クリック直前のDOM再読で必ず検出する。
+test('【yt-contract-tests/red】同じcard要素の発信元が差し替わってもクリック直前の発信元だけをブロックする', async () => {
+  const search = loadContentSearch();
+  const reusedCard = makeFakeHomeCardWrapper(300, {
+    top: 0, left: 0, right: 400, bottom: 300, width: 400, height: 300,
+  });
+  reusedCard.__source = { sourceId: '@Formula1', sourceName: 'FORMULA 1' };
+
+  const canonicalized = [];
+  const adapter = makeCanonicalizingAdapter(async (rawId) => {
+    canonicalized.push(rawId);
+    return rawId === '@TBS' ? 'UCTBS' : 'UCFORMULA1';
+  });
+  const added = [];
+  const storage = makeAliasAwareStorage({
+    addBlockedSource: async (siteKey, sourceId, sourceName) => {
+      added.push({ siteKey, sourceId, sourceName });
+    },
+  });
+  const body = makeFakeBody();
+  const doc = makeFakeDoc({ getCards: () => [reusedCard], body });
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+
+  movePointerOverCard(doc, reusedCard);
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
+  assert.equal(button.title, 'FORMULA 1 のブロックを切り替える', '前提: 初期ctxがbuttonへ入っていない');
+
+  // card要素は同一のまま、YouTube管理DOMの中身だけTBSへ差し替わる。scanはまだ走っていない。
+  reusedCard.__source = { sourceId: '@TBS', sourceName: 'TBS' };
+  doc.elementsFromPoint = () => [button, reusedCard];
+  await button.listeners.click({
+    clientX: 200,
+    clientY: 150,
+    detail: 1,
+    preventDefault() {},
+    stopPropagation() {},
+  });
+
+  assert.deepEqual(canonicalized, ['@TBS'], '差し替え前のFORMULA 1をcanonicalizeしている');
+  assert.deepEqual(added, [{ siteKey: 'youtube', sourceId: 'UCTBS', sourceName: 'TBS' }],
+    '現在DOMのTBSではなく、差し替え前のFORMULA 1をブラックリストへ登録している');
+});
+
+test('【yt-contract-tests】クリック直前にcardの発信元が消えた場合は古いctxで登録せずfail closedする', async () => {
+  const warnings = [];
+  const search = loadContentSearch({ consoleImpl: { ...console, warn: (...args) => warnings.push(args) } });
+  const reusedCard = makeFakeHomeCardWrapper(300);
+  reusedCard.__source = { sourceId: '@Formula1', sourceName: 'FORMULA 1' };
+  const adapter = makeCanonicalizingAdapter(async () => 'UCFORMULA1');
+  const added = [];
+  const storage = makeAliasAwareStorage({
+    addBlockedSource: async (...args) => { added.push(args); },
+  });
+  const body = makeFakeBody();
+  const doc = makeFakeDoc({ getCards: () => [reusedCard], body });
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+
+  movePointerOverCard(doc, reusedCard);
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
+  reusedCard.__source = null;
+  doc.elementsFromPoint = () => [button, reusedCard];
+  await button.listeners.click({
+    clientX: 200, clientY: 150, detail: 1,
+    preventDefault() {}, stopPropagation() {},
+  });
+
+  assert.equal(added.length, 0, '発信元が消えたcardから古いFORMULA 1を登録している');
+  assert.equal(button.textContent, '⚠ 対象を確認できません');
+  assert.equal(button.disabled, true);
+  assert.equal(warnings.length, 1, 'fail closedの理由をconsoleへ記録していない');
+});
