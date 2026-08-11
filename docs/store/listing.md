@@ -29,7 +29,7 @@ v2.0.0 では7サイトの発信元ブロックと、Yahoo ニュース / Yahoo!
 拡張の実装は複数の対応ページとポップアップにまたがるが、すべて上記1目的のための手段でしかない。
 
 - `src/content-search.js`（検索結果ページ）: 非表示そのものを実行する中核機能
-- `src/content-name.js`（ニュース一覧・関連動画）: 表示名で発信元を判定し、非表示を実行する中核機能
+- `src/content-name.js`（ニュース一覧）: 表示名で発信元を判定し、非表示を実行する中核機能
 - `src/content-item.js`（商品ページ）: 「このストアをブロック」ボタン＝非表示対象（ブロックリスト）への追加・解除の入力手段
 - `popup/`（拡張アイコンクリック時）: ブロック対象とキーワードの一覧表示・追加・削除・キャッシュクリア＝非表示対象を管理する手段
 
@@ -49,7 +49,6 @@ Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `co
   { "matches": ["*://www.youtube.com/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/youtube.js"], "run_at": "document_idle" },
   { "matches": ["*://auctions.yahoo.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/yahoo_auction.js"], "run_at": "document_idle" },
   { "matches": ["*://www.amazon.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/amazon.js"], "run_at": "document_idle" },
-  { "matches": ["*://www.youtube.com/watch*"], "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/youtube_watch.js"], "run_at": "document_idle" },
   { "matches": ["*://news.yahoo.co.jp/*"], "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/yahoo_news.js"], "run_at": "document_idle" },
   { "matches": ["*://www.yahoo.co.jp/*"], "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/yahoo_japan.js"], "run_at": "document_idle" }
 ]
@@ -91,12 +90,6 @@ Yahoo!ショッピングの検索結果ページのみで実行される。
 YouTube の検索結果ページでのみ適用される。
 
 - **検索結果ページ**（`content-search.js` + `youtube` アダプタ、パターンA）: 動画カード（`ytd-video-renderer`）内のチャンネルリンク（`a[href*="/@"]` または `a[href*="/channel/"]`）からチャンネル識別子を取得し、ブロック対象かどうか判定して非表示にするために必要。外部 API へのリクエストは行わない。
-
-### ホストアクセス `*://www.youtube.com/watch*`（content script、視聴ページ）
-
-YouTube の動画視聴ページでのみ適用される（上記の検索結果エントリとは別エントリ）。
-
-- **視聴ページの関連動画**（`content-name.js` + `youtube_watch` アダプタ、パターンB）: 関連動画カード（`yt-lockup-view-model`）内のチャンネル名テキスト（`span.ytAttributedStringHost`）でブロック対象かどうか判定するために必要。DOM にチャンネルリンクが存在しないため表示名マッチを使用する（`nameOnly: true` エントリ）。キーワードフィルタ（`keyword-filter.js`）も同一エントリでロードする。外部 API へのリクエストは行わない。
 
 ### ホストアクセス `*://news.yahoo.co.jp/*`（content script）
 
@@ -163,7 +156,7 @@ Amazon.co.jp の検索結果ページのみで実行される。
 > - Yahoo!ショッピング（`shopping.yahoo.co.jp`）の検索結果ページ
 > - ヤフオク（`auctions.yahoo.co.jp`）の検索結果ページ
 > - Amazon.co.jp（`amazon.co.jp`）の検索結果ページ
-> - YouTube（`youtube.com`）の検索結果ページ・動画視聴ページの関連動画
+> - YouTube（`youtube.com`）の検索結果ページ
 > - Yahoo ニュース（`news.yahoo.co.jp`）のニュース一覧
 > - Yahoo! JAPAN（`yahoo.co.jp`）のトップページのニュースフィード
 

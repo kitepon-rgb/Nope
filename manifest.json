@@ -71,11 +71,6 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["*://www.youtube.com/watch*"],
-      "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/youtube_watch.js"],
-      "run_at": "document_idle"
-    },
-    {
       "matches": ["*://news.yahoo.co.jp/*"],
       "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/yahoo_news.js"],
       "run_at": "document_idle"
