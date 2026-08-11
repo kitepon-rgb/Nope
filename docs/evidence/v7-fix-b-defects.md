@@ -44,3 +44,24 @@ index 1がチャンネル名だった。adapterは`querySelector()`でindex 0を
 - 修正前: focusedで`card.querySelector is not a function`となり旧取得経路を確認
 - focused: `node test/adapters/youtube_watch.test.mjs` — 8/8 green
 - 全体: `node --test test/*.test.mjs test/adapters/*.test.mjs` — 15 test files / 15 pass
+
+## B4: Yahoo Newsでプレースホルダーが出ない
+
+### 状態
+
+未解決。原因未特定のまま推測修正せず、実ブラウザ起動のblockerで停止した。
+
+### 確認済み
+
+- manifestは`storage.js → keyword-filter.js → content-name.js → adapters/yahoo_news.js`の順
+- adapterは調査正本どおり`ul.newsFeed_list > li`、`time.previousElementSibling`を使用
+- `content-name.js`はblocklist・keyword・displayMode読込後にscanし、placeholderを適用する構造
+
+### blocker
+
+`agent-browser --session codex --extension <repo>`で実ブラウザ再現を試みたが起動できなかった。
+
+1. 既定runtime: `Socket directory '/run/user/1000/agent-browser' is not writable: Read-only file system (os error 30)`
+2. `XDG_RUNTIME_DIR=/tmp/agent-browser-codex-runtime`指定: `Daemon process exited during startup with no error output.`
+
+実在する現在の記事・出版社を使ったblock設定とplaceholder確認は未実施。B4の修正コードも未実装。

@@ -19,34 +19,38 @@ function loadAdapter() {
   return captured;
 }
 
-function makeCard(spanText) {
+function makeCard(spanTexts) {
   return {
-    querySelector(selector) {
+    querySelectorAll(selector) {
       if (selector === 'span.ytAttributedStringHost') {
-        if (spanText === undefined) return null;
-        return { textContent: spanText };
+        return (spanTexts || []).map((textContent) => ({ textContent }));
       }
-      return null;
+      return [];
     },
   };
 }
 
-test('youtube_watch: span.ytAttributedStringHostのテキストをsourceNameとして返す', () => {
+test('youtube_watch: 2番目のspan.ytAttributedStringHostをチャンネル名として返す', () => {
   const adapter = loadAdapter();
-  const result = adapter.resolver.getSource(makeCard('Rick Astley'));
+  const result = adapter.resolver.getSource(makeCard([
+    'Never Gonna Give You Up',
+    'Rick Astley',
+    '1.2M',
+    '10d ago',
+  ]));
   assert.notEqual(result, null);
   assert.equal(result.sourceName, 'Rick Astley');
 });
 
-test('youtube_watch: span.ytAttributedStringHostがなければnullを返す', () => {
+test('youtube_watch: チャンネル名に相当する2番目のspanがなければnullを返す', () => {
   const adapter = loadAdapter();
-  const result = adapter.resolver.getSource(makeCard(undefined));
+  const result = adapter.resolver.getSource(makeCard(['動画タイトルだけ']));
   assert.equal(result, null);
 });
 
 test('youtube_watch: テキストが空文字ならnullを返す', () => {
   const adapter = loadAdapter();
-  const result = adapter.resolver.getSource(makeCard('   '));
+  const result = adapter.resolver.getSource(makeCard(['動画タイトル', '   ']));
   assert.equal(result, null);
 });
 
