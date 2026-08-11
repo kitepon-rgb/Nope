@@ -333,11 +333,16 @@ const CB_SEARCH = (() => {
   let floatingButton = null;
   let floatingHoverCard = null;
   let floatingHoverCtx = null;
+  // bell裁定[133] B: 表示理由をpointer/focusで区別する。focus起因で表示中は、
+  // card外の無関係なpointermoveでは隠さない（keyboardでTab focusしたボタンがマウスの
+  // ジッターで消えるのを防ぐ）。focusout/blurで理由が消えた時だけ幾何判定またはhideへ戻す。
+  let floatingHoverReason = null; // 'pointer' | 'focus' | null
 
   function hideFloatingButtonNow() {
     if (floatingButton) floatingButton.style.display = 'none';
     floatingHoverCard = null;
     floatingHoverCtx = null;
+    floatingHoverReason = null;
   }
 
   function positionFloatingButtonOverCard(card) {
@@ -399,17 +404,20 @@ const CB_SEARCH = (() => {
       color: COLOR_ORANGE_DEEP, borderRadius: '4px', padding: '4px 8px', fontSize: '12px',
       display: 'none',
     });
-    // bell裁定[107]: カードからbutton自身へpointer/focusが移っても消えない（hover/focus保持）。
-    // relatedTargetが直前のhover対象カードなら、そちらへ戻る動きとみなして隠さない。
-    button.addEventListener('mouseleave', (event) => {
-      if (event && event.relatedTarget === floatingHoverCard) return;
-      hideFloatingButtonNow();
-    });
+    // bell裁定[127]: mouse hoverの判定はdocument-level pointermoveの幾何判定に一本化した
+    // （button自身のmouseleaveには依存しない。isPointInRectがbutton矩形も見るため、
+    // pointerがbutton上にある間は自動的に維持される）。
     // bell裁定[119]: keyboardでbutton→cardへ戻るfocus移動もhover同様に保持する
     // （relatedTargetが直前のhover対象カードなら隠さない）。
     button.addEventListener('blur', (event) => {
       if (event && event.relatedTarget === floatingHoverCard) return;
-      hideFloatingButtonNow();
+      // bell裁定[133] B: focus理由が消えたら、直近のpointer位置で幾何判定へ戻す。
+      floatingHoverReason = null;
+      if (floatingPointerX === null || floatingPointerY === null) {
+        hideFloatingButtonNow();
+        return;
+      }
+      evaluateFloatingPointerHover(doc);
     });
     button.addEventListener('click', handleFloatingButtonClick);
     if (doc.body && doc.body.appendChild) doc.body.appendChild(button);
@@ -417,10 +425,11 @@ const CB_SEARCH = (() => {
     return button;
   }
 
-  function showFloatingButtonForCard(doc, card, ctx) {
+  function showFloatingButtonForCard(doc, card, ctx, reason) {
     const button = ensureFloatingButton(doc);
     floatingHoverCard = card;
     floatingHoverCtx = ctx;
+    floatingHoverReason = reason || 'pointer';
     positionFloatingButtonOverCard(card);
     button.style.display = '';
     if (ctx.resolutionFailed) {
@@ -440,40 +449,124 @@ const CB_SEARCH = (() => {
 
   const floatingContextByCard = new WeakMap();
   const floatingHoverAttached = new WeakSet();
+  // bell裁定[127]: mouse hoverの判定はcard自身のmouseenter/mouseleaveに依存せず、
+  // document-level pointermoveの幾何判定を正本にする（YouTube自身が生成するpreview overlay等が
+  // card DOM構造の外側にあっても、pointer位置がcard矩形内である限りhoverを継続させるため）。
+  // floatingRegisteredCardsはpointermove判定時に走査する対象カードの集合。
+  const floatingRegisteredCards = new Set();
 
-  /** カードへhover/focusリスナーを一度だけ付け、最新のctxをfloatingContextByCardへ保持する。
+  /** disconnectしたカードをfloatingRegisteredCardsから取り除く（bell裁定[133] A・
+   * mashiro監査[132]の確定欠陥修正）。強参照Setに残り続けるとGCされず、pointermoveのたびの
+   * 走査コストも消えない。isConnectedのチェックだけを行い、getBoundingClientRectは呼ばない
+   * （disconnect済み要素への再アクセスを避ける）。 */
+  function pruneFloatingRegisteredCards() {
+    for (const card of floatingRegisteredCards) {
+      if (card.isConnected === false) floatingRegisteredCards.delete(card);
+    }
+  }
+
+  /** カードへfocus保持リスナーを一度だけ付け、最新のctxをfloatingContextByCardへ保持する。
+   * mouse hoverはpointermoveの幾何判定（evaluateFloatingPointerHover）が担当するため、
+   * mouseenter/mouseleaveリスナーはここでは登録しない（bell裁定[127]）。
    * 現在floating buttonが対象カードを表示中なら内容を即時反映する（blocked状態の変化等に追従）。 */
   function applyFloatingRegisterButton(doc, card, wrapper, ctx) {
     floatingContextByCard.set(card, ctx);
+    floatingRegisteredCards.add(card);
     ensureFloatingButton(doc); // hover前でもbody直下に(非表示で)1個だけ存在させる
 
     if (floatingHoverCard === card) {
       if (ctx.blocked && !ctx.resolutionFailed) {
         hideFloatingButtonNow();
       } else {
-        showFloatingButtonForCard(doc, card, ctx);
+        // 表示中の理由（pointer/focus）は変えず、内容だけ最新化する。
+        showFloatingButtonForCard(doc, card, ctx, floatingHoverReason);
       }
     }
 
     if (floatingHoverAttached.has(card)) return;
     floatingHoverAttached.add(card);
 
-    const handleEnter = () => {
+    const handleFocusIn = () => {
       const latestCtx = floatingContextByCard.get(card);
       if (!latestCtx) return;
       if (latestCtx.blocked && !latestCtx.resolutionFailed) return; // ブロック済みはplaceholder側の解除ボタンに委ねる
-      showFloatingButtonForCard(doc, card, latestCtx);
+      showFloatingButtonForCard(doc, card, latestCtx, 'focus');
     };
-    const handleLeave = (event) => {
+    const handleFocusOut = (event) => {
       if (event && event.relatedTarget === floatingButton) return;
-      hideFloatingButtonNow();
+      // bell裁定[133] B: focus理由が消えたら、直近のpointer位置で幾何判定へ戻す
+      // （pointerがまだcard/button矩形内ならそのまま表示維持、外なら隠す）。
+      floatingHoverReason = null;
+      if (floatingPointerX === null || floatingPointerY === null) {
+        hideFloatingButtonNow();
+        return;
+      }
+      evaluateFloatingPointerHover(doc);
     };
     if (wrapper.addEventListener) {
-      wrapper.addEventListener('mouseenter', handleEnter);
-      wrapper.addEventListener('mouseleave', handleLeave);
-      wrapper.addEventListener('focusin', handleEnter);
-      wrapper.addEventListener('focusout', handleLeave);
+      wrapper.addEventListener('focusin', handleFocusIn);
+      wrapper.addEventListener('focusout', handleFocusOut);
     }
+  }
+
+  /** @returns {boolean} 点(x,y)が矩形rect内にあるか */
+  function isPointInRect(x, y, rect) {
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }
+
+  let floatingPointerX = null;
+  let floatingPointerY = null;
+  let floatingPointerRafScheduled = false;
+
+  /** document-level pointermoveの幾何判定本体（bell裁定[127]）。
+   * button矩形内→維持、現在のhover対象カード矩形内→維持、他の登録済みカード矩形内→切り替え、
+   * どれにも該当しなければ隠す。card自身のmouseenter/mouseleaveイベントは一切見ない。 */
+  function evaluateFloatingPointerHover(doc) {
+    floatingPointerRafScheduled = false;
+    // bell裁定[133] B: focus起因で表示中は、card外の無関係なpointermoveで隠さない。
+    // focusout側がfloatingHoverReasonをnullへ戻してからこの関数を明示的に呼び直す。
+    if (floatingHoverReason === 'focus') return;
+    if (floatingPointerX === null || floatingPointerY === null) return;
+
+    if (floatingButton && floatingButton.style.display !== 'none'
+        && typeof floatingButton.getBoundingClientRect === 'function'
+        && isPointInRect(floatingPointerX, floatingPointerY, floatingButton.getBoundingClientRect())) {
+      return;
+    }
+
+    if (floatingHoverCard && typeof floatingHoverCard.getBoundingClientRect === 'function'
+        && isPointInRect(floatingPointerX, floatingPointerY, floatingHoverCard.getBoundingClientRect())) {
+      return;
+    }
+
+    for (const card of floatingRegisteredCards) {
+      if (card.isConnected === false) continue;
+      if (typeof card.getBoundingClientRect !== 'function') continue;
+      const ctx = floatingContextByCard.get(card);
+      if (!ctx || (ctx.blocked && !ctx.resolutionFailed)) continue;
+      if (isPointInRect(floatingPointerX, floatingPointerY, card.getBoundingClientRect())) {
+        showFloatingButtonForCard(doc, card, ctx, 'pointer');
+        return;
+      }
+    }
+
+    if (floatingHoverCard) hideFloatingButtonNow();
+  }
+
+  /** pointermoveのたびに毎回評価すると重いので、rAF（無ければsetTimeout）で1フレームに間引く。
+   * bell裁定[133] C: window.requestAnimationFrameを変数へ代入して呼ぶとreceiverが外れ
+   * unbound呼び出しになる（実装によってはIllegal invocationで例外）。必ずwindow経由で呼ぶ。 */
+  function handleFloatingPointerMove(doc) {
+    return (event) => {
+      floatingPointerX = event.clientX;
+      floatingPointerY = event.clientY;
+      if (floatingPointerRafScheduled) return;
+      floatingPointerRafScheduled = true;
+      const schedule = (typeof window !== 'undefined' && window.requestAnimationFrame)
+        ? (fn) => window.requestAnimationFrame(fn)
+        : (fn) => setTimeout(fn, 16);
+      schedule(() => evaluateFloatingPointerHover(doc));
+    };
   }
 
   /** floating buttonの対象カードがdisconnect/不可視/viewport外になっていないか確認する
@@ -821,6 +914,10 @@ const CB_SEARCH = (() => {
       if (floatingHoverCard && !isFloatingTargetVisible(floatingHoverCard)) {
         hideFloatingButtonNow();
       }
+      // bell裁定[133] A（mashiro監査[132]の確定欠陥）: YouTubeの管理DOM再描画でdisconnectした
+      // 旧カードがfloatingRegisteredCardsに強参照のまま残り続け、pointermoveのたびの走査コストと
+      // メモリ両方が増え続けていた。scanのたびにdisconnect済みを間引く。
+      if (isFloatingRegister) pruneFloatingRegisteredCards();
     }
 
     async function start() {
@@ -842,6 +939,12 @@ const CB_SEARCH = (() => {
         };
         window.addEventListener('scroll', reposition, true);
         window.addEventListener('resize', reposition);
+      }
+      // mouse hoverの判定はdocument-level pointermoveの幾何判定を正本にする（bell裁定[127]）。
+      // card自身のmouseenter/mouseleaveには依存しないため、YouTube自身が生成するpreview overlay
+      // 等がcard DOM構造の外側にあってもpointer位置さえcard矩形内なら誤って隠れない。
+      if (isFloatingRegister && doc.addEventListener) {
+        doc.addEventListener('pointermove', handleFloatingPointerMove(doc));
       }
       scan(doc);
 
