@@ -137,3 +137,8 @@ test('Amazon: resolveSource — sellerProfileTriggerId が無い場合は source
   assert.equal(result.sourceId, 'A3EMK34PT3V85P');
   assert.equal(result.sourceName, 'A3EMK34PT3V85P');
 });
+
+test('Amazon: 販売者解決済みカードから出品者を登録するUI契約を持つ', () => {
+  const adapter = loadAdapter();
+  assert.equal(adapter.resolver.register.entityLabel, '出品者');
+});

@@ -622,3 +622,103 @@ test('async_resolveの本物の失敗はseller不在へ丸めず従来どおり�
   assert.match(String(warnings[0][0]), /sourceId解決に失敗/);
   assert.match(warnings[0][1].message, /HTTP構造エラー/);
 });
+
+test('dom_id登録UIはadapterの発信元種別を表示し、clickしたIDと名称だけを保存・即時ブロック・解除する', async () => {
+  const search = loadContentSearch({ includeMtop: false });
+  const wrapper = makeFakeWrapper();
+  const originalChild = makeFakeElement('a');
+  wrapper.appendChild(originalChild);
+  const card = { id: 'rakuten-card-1' };
+  let blocked = {};
+  const registered = [];
+  const removed = [];
+  const storage = {
+    getBlockedSources: async () => blocked,
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'placeholder',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async (siteKey, sourceId, sourceName) => {
+      registered.push([siteKey, sourceId, sourceName]);
+      blocked = { [sourceId]: { name: sourceName, addedAt: 1 } };
+    },
+    removeBlockedSource: async (siteKey, sourceId) => {
+      removed.push([siteKey, sourceId]);
+      blocked = {};
+    },
+  };
+  const adapter = {
+    siteKey: 'rakuten',
+    cardSelector: '.dui-card',
+    getWrapper: () => wrapper,
+    resolver: {
+      type: 'dom_id',
+      getSource: () => ({ sourceId: 'shop123', sourceName: '対象店舗' }),
+      register: { entityLabel: 'ショップ' },
+    },
+  };
+  const doc = Object.assign({ querySelectorAll: () => [card], body: {} }, makeFakeDocument());
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+
+  const button = wrapper.children.find((child) => child.className === 'cb-search-register-button');
+  assert.ok(button, '登録ボタンがカードへ生成されていない');
+  assert.equal(button.textContent, '🚫 このショップをブロック');
+
+  let prevented = false;
+  let stopped = false;
+  await button.listeners.click({
+    preventDefault() { prevented = true; },
+    stopPropagation() { stopped = true; },
+  });
+
+  assert.equal(prevented, true);
+  assert.equal(stopped, true);
+  assert.deepEqual(registered, [['rakuten', 'shop123', '対象店舗']]);
+  assert.ok(wrapper.querySelector('.cb-blocked-placeholder'), 'click直後にplaceholderへ切り替わっていない');
+
+  const placeholder = wrapper.querySelector('.cb-blocked-placeholder');
+  const unblock = placeholder.children.find((child) => child.className === 'cb-unblock-button');
+  await unblock.listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  assert.deepEqual(removed, [['rakuten', 'shop123']]);
+  assert.equal(wrapper.querySelector('.cb-blocked-placeholder'), null);
+  assert.equal(originalChild.style.display, '');
+});
+
+test('async_resolve登録UIは発信元不在nullのAmazon直販カードへボタンを出さない', async () => {
+  const search = loadContentSearch({ includeMtop: false });
+  const wrapper = makeFakeWrapper();
+  const card = { id: 'amazon-direct-card' };
+  const storage = {
+    getBlockedSources: async () => ({}),
+    getCachedSource: async () => null,
+    setCachedSource: async () => {},
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'placeholder',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async () => { throw new Error('呼ばれないはず'); },
+    removeBlockedSource: async () => {},
+  };
+  const adapter = {
+    siteKey: 'amazon',
+    cardSelector: 'div[data-component-type="s-search-result"]',
+    getWrapper: () => wrapper,
+    resolver: {
+      type: 'async_resolve',
+      getItemId: () => 'B0DIRECT',
+      resolveSource: async () => null,
+      register: { entityLabel: '出品者' },
+    },
+  };
+  const doc = Object.assign({ querySelectorAll: () => [card], body: {} }, makeFakeDocument());
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await flushQueue();
+
+  assert.equal(
+    wrapper.children.some((child) => child.className === 'cb-search-register-button'),
+    false,
+  );
+});

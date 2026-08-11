@@ -223,3 +223,8 @@ test('YouTube: register.mode は floating で、カード内挿入用のanchor�
   assert.equal(adapter.resolver.register.anchor, undefined,
     'register.anchorが残っている（廃止したはずのカード内挿入方式の名残）');
 });
+
+test('YouTube: 登録UIの発信元種別はチャンネルのまま', () => {
+  const adapter = loadAdapter();
+  assert.equal(adapter.resolver.register.entityLabel, 'チャンネル');
+});

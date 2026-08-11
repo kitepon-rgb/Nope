@@ -94,3 +94,8 @@ test('Yahoo!ショッピング: cardSelectorにSearchResult_SearchResultItemを�
   const adapter = loadAdapter();
   assert.ok(adapter.cardSelector.includes('SearchResult_SearchResultItem'));
 });
+
+test('Yahoo!ショッピング: 検索カードからショップを登録するUI契約を持つ', () => {
+  const adapter = loadAdapter();
+  assert.equal(adapter.resolver.register.entityLabel, 'ショップ');
+});

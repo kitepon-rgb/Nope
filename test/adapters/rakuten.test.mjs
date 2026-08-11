@@ -87,3 +87,8 @@ test('楽天: resolver.typeがdom_id', () => {
   const adapter = loadAdapter();
   assert.equal(adapter.resolver.type, 'dom_id');
 });
+
+test('楽天: 検索カードからショップを登録するUI契約を持つ', () => {
+  const adapter = loadAdapter();
+  assert.equal(adapter.resolver.register.entityLabel, 'ショップ');
+});
