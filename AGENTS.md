@@ -23,10 +23,16 @@ ChromeBlocker 開発中に踏んだコアプロダクト（Lattice・peertable �
 
 - **Yahoo!ショッピング**: ストアリンクは `https://store.shopping.yahoo.co.jp/{storeId}/{item}.html?...`。
   **末尾スラッシュではない**（`[href$="/"]` を要求する selector は一致0本になる）。
+  商品カードの子要素も `SearchResult_SearchResultItem__*` を共有するため、カードは
+  `SearchResult_SearchResult__*` 直下だけを対象にする。表示名は商品リンクではなく、pathname が
+  `/{storeId}/` のストアホームリンクから取得する（実Chrome実測 2026-08-12）。
 - **Amazon**: 検索結果の約 8 割は Amazon 直販で、**マーケットプレイス出品者が存在しない**。
   そうした商品は `#sellerProfileTriggerId`・`a[href*="seller="]`・`#merchant-info` が
   **CSR 後の実 DOM にも無い**（商品ページの表示は `販売元: Amazon.co.jp`）。
   静的 HTML から「出品者不在」と「構造変更」を区別する手段は現状ない。
+  同じASINが検索面に複数カードとして同時表示され、SPA再描画でcard要素だけ交換される場合がある。
+  非同期解決結果はASIN単位で共有しつつ、登録UI・表示制御は接続中の全カードへ適用する
+  （実Chrome実測 2026-08-12）。
 - **YouTube 視聴ページ**: `span.ytAttributedStringHost` は実測順で **index 0 が動画タイトル、
   index 1 がチャンネル名**。
 - **ヤフオク**: 検索カードに出品者情報は無く、詳細ページ（`/jp/auction/{id}`）は SSR で

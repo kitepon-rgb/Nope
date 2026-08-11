@@ -13,6 +13,7 @@ function loadAdapter() {
   let captured = null;
   const context = vm.createContext({
     console,
+    URL,
     CB_SEARCH: {
       init(opts) { captured = opts.adapter; return { start() {} }; },
     },
@@ -22,16 +23,23 @@ function loadAdapter() {
 }
 
 function makeCard(storeHref, storeText = 'テストストア') {
+  const links = [];
+  if (storeHref) {
+    links.push({ href: storeHref, textContent: '' });
+    const storeId = /store\.shopping\.yahoo\.co\.jp\/([^/]+)\//.exec(storeHref)?.[1];
+    if (storeId) {
+      links.push({
+        href: `https://store.shopping.yahoo.co.jp/${storeId}/?sc_i=store`,
+        textContent: storeText,
+      });
+    }
+  }
   return {
-    querySelector(selector) {
+    querySelectorAll(selector) {
       if (selector === 'a[href^="https://store.shopping.yahoo.co.jp/"]') {
-        if (!storeHref) return null;
-        return {
-          href: storeHref,
-          textContent: storeText,
-        };
+        return links;
       }
-      return null;
+      return [];
     },
   };
 }
@@ -48,6 +56,33 @@ test('Yahoo!ショッピング: ストアIDと店舗名を取得できる', () =
   assert.equal(result.sourceName, 'L&Lスマホサービス');
 });
 
+test('Yahoo!ショッピング: 商品リンクではなくストアホームの表示名を使う', () => {
+  const adapter = loadAdapter();
+  const card = {
+    querySelectorAll() {
+      return [
+        {
+          href: 'https://store.shopping.yahoo.co.jp/thanksjp/item.html?sc_i=img',
+          textContent: '',
+        },
+        {
+          href: 'https://store.shopping.yahoo.co.jp/thanksjp/item.html?sc_i=title',
+          textContent: '商品タイトル',
+        },
+        {
+          href: 'https://store.shopping.yahoo.co.jp/thanksjp/?sc_i=store',
+          textContent: 'サンクスジェピ',
+        },
+      ];
+    },
+  };
+
+  assert.deepEqual(
+    { ...adapter.resolver.getSource(card) },
+    { sourceId: 'thanksjp', sourceName: 'サンクスジェピ' },
+  );
+});
+
 test('Yahoo!ショッピング: 広告カード（直リンクなし）はnullを返す', () => {
   const adapter = loadAdapter();
   // 広告カードには store.shopping.yahoo.co.jp 直リンクがない
@@ -60,9 +95,9 @@ test('Yahoo!ショッピング: 別ドメインのリンクはnullを返す', ()
   const adapter = loadAdapter();
   // リダイレクト系（shopping-item-reach.yahoo.co.jp）→ querySelector で null になる
   const card = {
-    querySelector(selector) {
+    querySelectorAll(selector) {
       // 条件を満たすリンクが無いケース
-      return null;
+      return [];
     },
   };
   const result = adapter.resolver.getSource(card);
@@ -90,9 +125,12 @@ test('Yahoo!ショッピング: resolver.typeがdom_id', () => {
   assert.equal(adapter.resolver.type, 'dom_id');
 });
 
-test('Yahoo!ショッピング: cardSelectorにSearchResult_SearchResultItemを含む', () => {
+test('Yahoo!ショッピング: 検索結果直下の商品カードだけを対象にする', () => {
   const adapter = loadAdapter();
-  assert.ok(adapter.cardSelector.includes('SearchResult_SearchResultItem'));
+  assert.equal(
+    adapter.cardSelector,
+    'div[class*="SearchResult_SearchResult__"] > div[class^="SearchResult_SearchResultItem__"]',
+  );
 });
 
 test('Yahoo!ショッピング: 検索カードからショップを登録するUI契約を持つ', () => {

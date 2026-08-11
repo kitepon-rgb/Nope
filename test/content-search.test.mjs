@@ -738,6 +738,68 @@ test('async_resolve登録UIは解決したAmazon出品者のID・名称を保存
   assert.ok(wrapper.querySelector('.cb-blocked-placeholder'), 'click直後にplaceholderへ切り替わっていない');
 });
 
+test('async_resolve登録UIは同じASINの全カードと再描画後カードへ解決結果を再利用する', async () => {
+  const search = loadContentSearch({ includeMtop: false });
+  const firstCard = { id: 'amazon-duplicate-1', asin: 'B0SAME', isConnected: true };
+  const secondCard = { id: 'amazon-duplicate-2', asin: 'B0SAME', isConnected: true };
+  const replacementCard = { id: 'amazon-replacement', asin: 'B0SAME', isConnected: true };
+  const wrappers = new Map([
+    [firstCard, makeFakeWrapper()],
+    [secondCard, makeFakeWrapper()],
+    [replacementCard, makeFakeWrapper()],
+  ]);
+  let visibleCards = [firstCard, secondCard];
+  let resolveCount = 0;
+  const storage = {
+    getBlockedSources: async () => ({}),
+    getCachedSource: async () => null,
+    setCachedSource: async () => {},
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'placeholder',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async () => {},
+    removeBlockedSource: async () => {},
+  };
+  const adapter = {
+    siteKey: 'amazon',
+    cardSelector: '.card',
+    getWrapper: (card) => wrappers.get(card),
+    resolver: {
+      type: 'async_resolve',
+      getItemId: (card) => card.asin,
+      resolveSource: async () => {
+        resolveCount += 1;
+        return { sourceId: 'SELLER-SAME', sourceName: '同一出品者' };
+      },
+      register: { entityLabel: '出品者' },
+    },
+  };
+  const doc = Object.assign({ querySelectorAll: () => visibleCards, body: {} }, makeFakeDocument());
+  const controller = search.init({ document: doc, storage, adapter });
+
+  await controller.start();
+  await flushQueue();
+
+  for (const card of [firstCard, secondCard]) {
+    assert.ok(
+      wrappers.get(card).children.some((child) => child.className === 'cb-search-register-button'),
+      `${card.id} に登録ボタンが生成されていない`,
+    );
+  }
+  assert.equal(resolveCount, 1, '同じASINを重複解決している');
+
+  firstCard.isConnected = false;
+  secondCard.isConnected = false;
+  visibleCards = [replacementCard];
+  controller.scan(doc);
+
+  assert.ok(
+    wrappers.get(replacementCard).children.some((child) => child.className === 'cb-search-register-button'),
+    '再描画後カードに登録ボタンが復元されていない',
+  );
+  assert.equal(resolveCount, 1, '再描画後に既知ASINを再解決している');
+});
+
 test('async_resolve登録UIは名称付きcache命中時に再通信せず正しい出品者名を使う', async () => {
   const search = loadContentSearch({ includeMtop: false });
   const wrapper = makeFakeWrapper();

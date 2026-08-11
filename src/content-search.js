@@ -769,8 +769,10 @@ const CB_SEARCH = (() => {
       throw new Error(`content-search: 未対応のresolver.typeです siteKey=${siteKey} type=${resolver && resolver.type}`);
     }
 
-    const wrapperByItemId = new Map();
-    const cardByItemId = new Map();
+    // 同じ itemId が検索面の複数カードに現れることがある（Amazon の通常枠＋別枠など）。
+    // itemId→単一cardでは片方だけに登録UI・ブロック表示が適用されるため、全インスタンスを保持する。
+    const asyncCardsByItemId = new Map();
+    const asyncStartedItemIds = new Set();
     const sourceIdByItemId = new Map();
     const sourceNameByItemId = new Map();
     const directCardInfo = new Map();
@@ -847,22 +849,23 @@ const CB_SEARCH = (() => {
     function applyKnown(itemId) {
       const sourceId = sourceIdByItemId.get(itemId);
       const sourceName = sourceNameByItemId.get(itemId) || '';
-      const wrapper = wrapperByItemId.get(itemId);
-      const card = cardByItemId.get(itemId);
-      if (!sourceId || !wrapper) return;
+      const cards = asyncCardsByItemId.get(itemId);
+      if (!sourceId || !cards) return;
       const blocked = isBlocked(sourceId);
-      applyVisibility(wrapper, blocked, buildVisibilityOptions(sourceId, sourceName));
-      if (resolver.register && card) {
-        applyRegisterButton({
-          doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper,
-          resolveAnchor: resolver.register.anchor,
-          sourceId, sourceName, siteKey, storage, blocked,
-          entityLabel: resolver.register.entityLabel,
-          onToggled: async () => {
-            blockedSources = await storage.getBlockedSources(siteKey);
-            applyKnown(itemId);
-          },
-        });
+      for (const [card, wrapper] of cards) {
+        applyVisibility(wrapper, blocked, buildVisibilityOptions(sourceId, sourceName));
+        if (resolver.register && card) {
+          applyRegisterButton({
+            doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper,
+            resolveAnchor: resolver.register.anchor,
+            sourceId, sourceName, siteKey, storage, blocked,
+            entityLabel: resolver.register.entityLabel,
+            onToggled: async () => {
+              blockedSources = await storage.getBlockedSources(siteKey);
+              applyKnown(itemId);
+            },
+          });
+        }
       }
     }
 
@@ -1014,10 +1017,42 @@ const CB_SEARCH = (() => {
 
     function handleAsyncCard(card) {
       const itemId = resolver.getItemId(card);
-      if (!itemId || wrapperByItemId.has(itemId)) return;
+      if (!itemId) return;
       const wrapper = getWrapper(card);
-      cardByItemId.set(itemId, card);
-      wrapperByItemId.set(itemId, wrapper);
+      let cards = asyncCardsByItemId.get(itemId);
+      if (!cards) {
+        cards = new Map();
+        asyncCardsByItemId.set(itemId, cards);
+      }
+
+      // SPA再描画で切断された旧カードを強参照し続けない。Amazonでは同じASINの接続中カードが
+      // 複数存在しうるため、element identityが違うだけでは削除しない。
+      for (const knownCard of cards.keys()) {
+        if (knownCard !== card && knownCard.isConnected === false) {
+          cards.delete(knownCard);
+          registerButtonByCard.delete(knownCard);
+          errorBadgeByCard.delete(knownCard);
+        }
+      }
+
+      const previousWrapper = cards.get(card);
+      if (previousWrapper === wrapper) return;
+      if (previousWrapper) {
+        const oldButton = registerButtonByCard.get(card);
+        if (oldButton && oldButton.remove) oldButton.remove();
+        registerButtonByCard.delete(card);
+        errorBadgeByCard.delete(card);
+      }
+      cards.set(card, wrapper);
+
+      // 解決済みitemの新しいDOMインスタンスには、通信せず既知結果をその場で適用する。
+      if (sourceIdByItemId.has(itemId)) {
+        applyKnown(itemId);
+        return;
+      }
+      // 同一itemIdの重複カード／再描画で解決要求を重ねない。進行中callbackは最新のcardsへ適用する。
+      if (asyncStartedItemIds.has(itemId)) return;
+      asyncStartedItemIds.add(itemId);
 
       storage.getCachedSource(siteKey, itemId).then((cached) => {
         if (cached) {
