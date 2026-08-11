@@ -9,10 +9,11 @@ import vm from 'node:vm';
 
 const SRC = path.join(import.meta.dirname, '..', '..', 'src', 'adapters', 'youtube.js');
 
-function loadAdapter() {
+function loadAdapter({ fetch: fetchImpl } = {}) {
   let captured = null;
   const context = vm.createContext({
     console,
+    fetch: fetchImpl,
     CB_SEARCH: {
       init(opts) { captured = opts.adapter; return { start() {} }; },
     },
@@ -136,4 +137,43 @@ test('YouTube: getWrapperはcardをそのまま返す', () => {
 test('YouTube: resolver.typeがdom_id', () => {
   const adapter = loadAdapter();
   assert.equal(adapter.resolver.type, 'dom_id');
+});
+
+// docs/design-youtube-surfaces.md §2/§4-A: handle→UC正規化。plan成功条件2「片方だけ再出現する
+// 状態を許さない」をUC正本化で満たす（room裁定[45][47][48]）。
+test('YouTube: canonicalizeはUC形式をfetchせずそのまま返す', async () => {
+  let fetchCalled = false;
+  const adapter = loadAdapter({ fetch: async () => { fetchCalled = true; } });
+  const result = await adapter.resolver.canonicalize('UCMJEnW8naproLde7E2GInhw');
+  assert.equal(result, 'UCMJEnW8naproLde7E2GInhw');
+  assert.equal(fetchCalled, false);
+});
+
+test('YouTube: canonicalizeはhandle形式を実チャンネル応答のcanonical linkからUC IDへ解決する', async () => {
+  const html = '<html><head><link rel="canonical" href="https://www.youtube.com/channel/UCLA_DiR1FfKNvjuUpBHmylQ"></head></html>';
+  let requestedUrl = null;
+  const adapter = loadAdapter({
+    fetch: async (url) => {
+      requestedUrl = url;
+      return { ok: true, text: async () => html };
+    },
+  });
+  const result = await adapter.resolver.canonicalize('@NASA');
+  assert.equal(result, 'UCLA_DiR1FfKNvjuUpBHmylQ');
+  assert.equal(requestedUrl, 'https://www.youtube.com/@NASA');
+});
+
+test('YouTube: canonicalizeはfetch失敗時にthrowする（部分登録へのフォールバック禁止）', async () => {
+  const adapter = loadAdapter({ fetch: async () => { throw new Error('network down'); } });
+  await assert.rejects(() => adapter.resolver.canonicalize('@NASA'), /fetchに失敗/);
+});
+
+test('YouTube: canonicalizeはHTTPエラー応答時にthrowする', async () => {
+  const adapter = loadAdapter({ fetch: async () => ({ ok: false, status: 404, text: async () => '' }) });
+  await assert.rejects(() => adapter.resolver.canonicalize('@NASA'), /HTTPエラー/);
+});
+
+test('YouTube: canonicalizeはcanonical linkが無い応答ではthrowする（表示名等への推測フォールバック禁止）', async () => {
+  const adapter = loadAdapter({ fetch: async () => ({ ok: true, text: async () => '<html>no canonical here</html>' }) });
+  await assert.rejects(() => adapter.resolver.canonicalize('@NASA'), /canonical linkが見つかりません/);
 });

@@ -32,6 +32,11 @@ const CB_SEARCH = (() => {
   const COLOR_INK = '#111b35'; // Ink: 本文（ストア名）
   const COLOR_WHITE = '#fffef9'; // White: card背景
 
+  // docs/design-youtube-surfaces.md §3: dom_id resolver への resolver.register オプトインで
+  // 未ブロックカードへ hover/focus 登録トグルボタンを注入する（content-name.js の
+  // ensureSourceButton と同じUX）。resolver.register が無いアダプタ（rakuten等）は無関係。
+  const REGISTER_BUTTON_CLASS = 'cb-search-register-button';
+
   /** @returns {string} 拡張同梱のマスコット画像URL（chrome.runtime.getURL経由） */
   function getMascotImageUrl() {
     return chrome.runtime.getURL(MASCOT_IMAGE_PATH);
@@ -55,24 +60,48 @@ const CB_SEARCH = (() => {
     return link.parentElement || null;
   }
 
-  /** wrapperの元の子要素を退避してdisplay:noneで隠す（二重退避防止）。 @param {any} wrapper */
+  /**
+   * wrapperの元の子要素を退避してdisplay:noneで隠す（二重退避防止）。
+   * docs/design-youtube-surfaces.md §5: 実測できた高さがあればwrapper自体に固定して
+   * レイアウト崩れを防ぐ（content-name.jsのhideOriginalChildrenと同じロジック）。
+   * 実測できない/0の場合はwrapperの高さには触れず、placeholder側の固定minHeightに任せる
+   * （既存サイトの見た目は変えない）。
+   * @param {any} wrapper
+   */
   function hideOriginalChildren(wrapper) {
     if (originalChildStateByWrapper.has(wrapper)) return;
     const children = Array.from(wrapper.children || []);
-    const state = children.map((child) => ({ child, display: child.style ? child.style.display : '' }));
-    originalChildStateByWrapper.set(wrapper, state);
-    for (const { child } of state) {
+    const childStates = children.map((child) => ({ child, display: child.style ? child.style.display : '' }));
+    const rectHeight = typeof wrapper.getBoundingClientRect === 'function'
+      ? wrapper.getBoundingClientRect().height
+      : 0;
+    const measuredHeight = rectHeight || wrapper.offsetHeight || 0;
+    originalChildStateByWrapper.set(wrapper, {
+      childStates,
+      height: wrapper.style.height || '',
+      boxSizing: wrapper.style.boxSizing || '',
+      overflow: wrapper.style.overflow || '',
+    });
+    if (measuredHeight > 0) {
+      wrapper.style.height = `${Math.round(measuredHeight)}px`;
+      wrapper.style.boxSizing = 'border-box';
+      wrapper.style.overflow = 'hidden';
+    }
+    for (const { child } of childStates) {
       if (child.style) child.style.display = 'none';
     }
   }
 
-  /** 退避した元の子要素のdisplayを復元する。 @param {any} wrapper */
+  /** 退避した元の子要素のdisplayと、固定した高さを復元する。 @param {any} wrapper */
   function restoreOriginalChildren(wrapper) {
     const state = originalChildStateByWrapper.get(wrapper);
     if (!state) return;
-    for (const { child, display } of state) {
+    for (const { child, display } of state.childStates) {
       if (child.style) child.style.display = display;
     }
+    wrapper.style.height = state.height;
+    wrapper.style.boxSizing = state.boxSizing;
+    wrapper.style.overflow = state.overflow;
     originalChildStateByWrapper.delete(wrapper);
   }
 
@@ -143,6 +172,122 @@ const CB_SEARCH = (() => {
     const placeholder = wrapper.querySelector && wrapper.querySelector(`.${PLACEHOLDER_CLASS}`);
     if (placeholder && placeholder.remove) placeholder.remove();
     restoreOriginalChildren(wrapper);
+  }
+
+  // docs/design-youtube-surfaces.md §3: 未ブロックカードへhover/focusで現れる登録トグルボタン。
+  // content-name.js の ensureSourceButton と同じUX（opacity 0→1、position:absolute top-right）。
+
+  /**
+   * @param {any} doc @param {Map<any, any>} buttonByCard @param {any} card @param {any} anchor
+   * @param {string} sourceId @param {string} sourceName @param {string} siteKey @param {any} storage
+   * @param {Function} onToggled
+   */
+  function ensureRegisterButton(doc, buttonByCard, card, anchor, sourceId, sourceName, siteKey, storage, onToggled) {
+    let button = buttonByCard.get(card);
+    if (button) return button;
+
+    button = doc.createElement('button');
+    button.type = 'button';
+    button.className = REGISTER_BUTTON_CLASS;
+    const label = sourceName || sourceId;
+    button.title = `${label} のブロックを切り替える`;
+    if (button.setAttribute) button.setAttribute('aria-label', `${label} のブロックを切り替える`);
+    Object.assign(button.style, {
+      position: 'absolute', top: '6px', right: '6px', zIndex: '2147483646',
+      cursor: 'pointer', border: `1px solid ${COLOR_ORANGE}`, background: COLOR_WHITE,
+      color: COLOR_ORANGE_DEEP, borderRadius: '4px', padding: '4px 8px', fontSize: '12px',
+      opacity: '0', pointerEvents: 'none', transition: 'opacity 120ms ease',
+    });
+    if (!anchor.style.position) anchor.style.position = 'relative';
+
+    const show = () => { button.style.opacity = '1'; button.style.pointerEvents = 'auto'; };
+    const hide = () => { button.style.opacity = '0'; button.style.pointerEvents = 'none'; };
+    if (anchor.addEventListener) {
+      anchor.addEventListener('mouseenter', show);
+      anchor.addEventListener('mouseleave', hide);
+    }
+    button.addEventListener('focus', show);
+    button.addEventListener('blur', hide);
+
+    button.addEventListener('click', async (event) => {
+      if (event) {
+        if (event.preventDefault) event.preventDefault();
+        if (event.stopPropagation) event.stopPropagation();
+      }
+      button.disabled = true;
+      try {
+        const current = await storage.getBlockedSources(siteKey);
+        if (current[sourceId]) {
+          await storage.removeBlockedSource(siteKey, sourceId);
+        } else {
+          await storage.addBlockedSource(siteKey, sourceId, sourceName);
+        }
+        if (onToggled) await onToggled();
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    if (anchor.appendChild) anchor.appendChild(button);
+    buttonByCard.set(card, button);
+    return button;
+  }
+
+  const RESOLUTION_ERROR_CLASS = 'cb-search-register-error';
+
+  /**
+   * resolver.canonicalize が失敗したカードへ、常時可視のエラーバッジを出す（登録操作は提供しない）。
+   * docs/design-youtube-surfaces.md §2/§4-A: 部分登録へフォールバックせず、失敗をユーザーへ明示する。
+   * @param {any} doc @param {Map<any, any>} badgeByCard @param {any} card @param {any} anchor
+   */
+  function ensureResolutionErrorBadge(doc, badgeByCard, card, anchor) {
+    let badge = badgeByCard.get(card);
+    if (badge) return badge;
+
+    badge = doc.createElement('span');
+    badge.className = RESOLUTION_ERROR_CLASS;
+    badge.textContent = '⚠ 識別子解決に失敗';
+    badge.title = 'このチャンネルのブロック操作は利用できません（識別子の解決に失敗しました。ページを再読み込みすると再試行します）';
+    Object.assign(badge.style, {
+      position: 'absolute', top: '6px', right: '6px', zIndex: '2147483646',
+      border: '1px solid #b3261e', background: COLOR_WHITE, color: '#b3261e',
+      borderRadius: '4px', padding: '4px 8px', fontSize: '11px', pointerEvents: 'none',
+    });
+    if (!anchor.style.position) anchor.style.position = 'relative';
+
+    if (anchor.appendChild) anchor.appendChild(badge);
+    badgeByCard.set(card, badge);
+    return badge;
+  }
+
+  /**
+   * 登録ボタンの表示/非表示を切り替える。ブロック中は隠す（未ブロックカードだけに出す）。
+   * 識別子解決に失敗したカードは、ボタンの代わりに常時可視のエラーバッジを出す。
+   * @param {{doc: any, buttonByCard: Map<any, any>, errorBadgeByCard: Map<any, any>, card: any,
+   *   wrapper: any, anchorSelector?: string, sourceId: string, sourceName: string, siteKey: string,
+   *   storage: any, blocked: boolean, resolutionFailed?: boolean, onToggled: Function}} deps
+   */
+  function applyRegisterButton(deps) {
+    const {
+      doc, buttonByCard, errorBadgeByCard, card, wrapper, anchorSelector,
+      sourceId, sourceName, siteKey, storage, blocked, resolutionFailed, onToggled,
+    } = deps;
+    const anchor = (anchorSelector && wrapper.querySelector && wrapper.querySelector(anchorSelector)) || wrapper;
+
+    if (resolutionFailed) {
+      const existingButton = buttonByCard.get(card);
+      if (existingButton) existingButton.style.display = 'none';
+      ensureResolutionErrorBadge(doc, errorBadgeByCard, card, anchor);
+      return;
+    }
+
+    const existing = buttonByCard.get(card);
+    if (blocked) {
+      if (existing) existing.style.display = 'none';
+      return;
+    }
+    const button = ensureRegisterButton(doc, buttonByCard, card, anchor, sourceId, sourceName, siteKey, storage, onToggled);
+    button.style.display = '';
   }
 
   /**
@@ -231,6 +376,13 @@ const CB_SEARCH = (() => {
     const wrapperByItemId = new Map();
     const sourceIdByItemId = new Map();
     const directCardInfo = new Map();
+    const registerButtonByCard = new Map();
+    const errorBadgeByCard = new Map();
+    // docs/design-youtube-surfaces.md §2/§4-A: resolver.canonicalize が居るアダプタでは、
+    // 生のsourceId（handle形式等）を正本ID（UC形式）へ解決してから保存・照合する。
+    // 解決結果は itemSourceCache（storage.getCachedSource/setCachedSource）を再利用してキャッシュし、
+    // 同一カードの二重解決を防ぐため in-flight のカードは pendingCanonicalization で追跡する。
+    const pendingCanonicalization = new Set();
     let blockedSources = {};
     let displayMode = DEFAULT_MODE;
     let resolvedSourceCount = 0;
@@ -301,21 +453,74 @@ const CB_SEARCH = (() => {
     function applyDirectCard(card) {
       const info = directCardInfo.get(card);
       if (!info) return;
-      applyVisibility(
-        info.wrapper,
-        isBlocked(info.sourceId),
-        buildVisibilityOptions(info.sourceId, info.sourceName),
-      );
+
+      if (info.resolutionFailed) {
+        applyVisibility(info.wrapper, false, { mode: displayMode });
+        if (resolver.register) {
+          applyRegisterButton({
+            doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper: info.wrapper,
+            anchorSelector: resolver.register.anchorSelector,
+            sourceId: info.sourceId, sourceName: info.sourceName,
+            siteKey, storage, blocked: false, resolutionFailed: true, onToggled: async () => {},
+          });
+        }
+        return;
+      }
+
+      const blocked = isBlocked(info.sourceId);
+      applyVisibility(info.wrapper, blocked, buildVisibilityOptions(info.sourceId, info.sourceName));
+      if (resolver.register) {
+        applyRegisterButton({
+          doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper: info.wrapper,
+          anchorSelector: resolver.register.anchorSelector,
+          sourceId: info.sourceId, sourceName: info.sourceName,
+          siteKey, storage, blocked,
+          onToggled: async () => {
+            blockedSources = await storage.getBlockedSources(siteKey);
+            applyDirectCard(card);
+          },
+        });
+      }
+    }
+
+    // rawSourceIdを正本ID（UC形式）へ解決する。UC形式は既に正本なのでそのまま返す。
+    // handle形式はキャッシュ優先で解決し、キャッシュミスならresolver.canonicalizeを呼んで保存する。
+    async function resolveCanonicalId(rawSourceId) {
+      const cached = await storage.getCachedSource(siteKey, rawSourceId);
+      if (cached) return cached;
+      const canonicalId = await resolver.canonicalize(rawSourceId);
+      await storage.setCachedSource(siteKey, rawSourceId, canonicalId);
+      return canonicalId;
     }
 
     function handleDirectCard(card) {
-      if (directCardInfo.has(card)) return;
+      if (directCardInfo.has(card) || pendingCanonicalization.has(card)) return;
       const source = resolver.getSource(card);
       if (!source) return;
       const wrapper = getWrapper(card);
       if (!wrapper) return;
-      directCardInfo.set(card, { ...source, wrapper });
-      applyDirectCard(card);
+
+      if (!resolver.canonicalize) {
+        directCardInfo.set(card, { ...source, wrapper });
+        applyDirectCard(card);
+        return;
+      }
+
+      // 正本ID解決は非同期。解決成功時だけ保存・照合IDをUCへ正規化する（成功時のみdirectCardInfoへ登録し、
+      // 失敗時はエラーカードとして登録し、部分登録（生IDでの登録）はしない）。
+      pendingCanonicalization.add(card);
+      resolveCanonicalId(source.sourceId)
+        .then((canonicalId) => {
+          pendingCanonicalization.delete(card);
+          directCardInfo.set(card, { sourceId: canonicalId, sourceName: source.sourceName, wrapper });
+          applyDirectCard(card);
+        })
+        .catch((err) => {
+          pendingCanonicalization.delete(card);
+          console.warn(`content-search: 正本ID解決に失敗しました siteKey=${siteKey} sourceId=${source.sourceId}`, err);
+          directCardInfo.set(card, { sourceId: source.sourceId, sourceName: source.sourceName, wrapper, resolutionFailed: true });
+          applyDirectCard(card);
+        });
     }
 
     function handleAsyncCard(card) {
@@ -347,9 +552,22 @@ const CB_SEARCH = (() => {
       });
     }
 
+    let firstScanDone = false;
+
     function scan(root) {
       const handleCard = resolver.type === 'dom_id' ? handleDirectCard : handleAsyncCard;
-      for (const card of root.querySelectorAll(cardSelector)) handleCard(card);
+      const cards = root.querySelectorAll(cardSelector);
+      if (!firstScanDone) {
+        firstScanDone = true;
+        // 初回スキャン0件はセレクタ壊れの検知（content-name.jsのfirstScanDoneと同じ安全弁）。
+        // 「静かに効かなくなる」最悪ケースを防ぐ。
+        if (cards.length === 0) {
+          console.warn(
+            `content-search: 初回スキャンでカードが0件。セレクタが壊れている可能性があります siteKey=${siteKey} cardSelector=${cardSelector}`
+          );
+        }
+      }
+      for (const card of cards) handleCard(card);
     }
 
     async function start() {

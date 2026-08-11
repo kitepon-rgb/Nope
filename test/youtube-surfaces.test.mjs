@@ -160,3 +160,115 @@ test('【yt-contract-tests/red】視聴ページ(watch*)向けcontent_scriptsエ
 test('【yt-contract-tests/red】youtube_watch.js アダプタが撤去されている（plan成功条件6・yt-watch-retire撤去後に真になる）', () => {
   assert.equal(existsSync(YOUTUBE_WATCH_ADAPTER_PATH), false, 'src/adapters/youtube_watch.js がまだ存在する');
 });
+
+// room裁定[45][47][48]: 成功条件2「片方だけ再出現する状態を許さない」はUC正本化で満たす。
+// blockedSourcesはUC ID 1件のみが正本、handle→UCの対応はitemSourceCache（storage.getCachedSource/
+// setCachedSource）を再利用する。以下はCB_SEARCHエンジン側のcanonicalize統合を検証する。
+function makeCanonicalizingAdapter(canonicalizeImpl) {
+  return {
+    siteKey: 'youtube',
+    cardSelector: 'ytd-video-renderer',
+    getWrapper: (card) => card,
+    resolver: {
+      type: 'dom_id',
+      getSource: (card) => card.__source,
+      register: { anchorSelector: '#dismissible' },
+      canonicalize: canonicalizeImpl,
+    },
+  };
+}
+
+test('【yt-contract-tests】handle形式カードは正本UC IDへ解決してから照合する（既にUCでブロック済みなら隠れる）', async () => {
+  const search = loadContentSearch();
+  const card = makeFakeYoutubeCardWrapper(300);
+  card.__source = { sourceId: '@NASA', sourceName: 'NASA' };
+  const adapter = makeCanonicalizingAdapter(async (rawId) => {
+    assert.equal(rawId, '@NASA');
+    return 'UCLA_DiR1FfKNvjuUpBHmylQ';
+  });
+  const storage = {
+    getBlockedSources: async () => ({ UCLA_DiR1FfKNvjuUpBHmylQ: { name: 'NASA', addedAt: 0 } }),
+    getCachedSource: async () => null,
+    setCachedSource: async () => {},
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'collapse',
+    onDisplayModeChanged: () => {},
+  };
+  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(card.style.display, 'none', 'handle形式カードがUC正本での照合結果を反映していない');
+});
+
+test('【yt-contract-tests】登録ボタンでのブロックはキャッシュ済みの正本UC IDで保存する（生のhandleを保存しない）', async () => {
+  const search = loadContentSearch();
+  const card = makeFakeYoutubeCardWrapper(300);
+  card.__source = { sourceId: '@NASA', sourceName: 'NASA' };
+  let canonicalizeCalls = 0;
+  const adapter = makeCanonicalizingAdapter(async () => { canonicalizeCalls += 1; return 'UCLA_DiR1FfKNvjuUpBHmylQ'; });
+  const added = [];
+  const storage = {
+    getBlockedSources: async () => ({}),
+    getCachedSource: async () => null,
+    setCachedSource: async () => {},
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'collapse',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async (siteKey, sourceId, sourceName) => { added.push({ siteKey, sourceId, sourceName }); },
+    removeBlockedSource: async () => {},
+  };
+  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+
+  const anchor = card.querySelector('#dismissible');
+  const button = anchor.querySelector('.cb-search-register-button');
+  assert.ok(button, '正本ID解決成功後に登録ボタンが出ていない');
+  await button.listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  assert.deepEqual(added, [{ siteKey: 'youtube', sourceId: 'UCLA_DiR1FfKNvjuUpBHmylQ', sourceName: 'NASA' }],
+    '登録ボタンが生のhandle(@NASA)を保存している（UC正本での保存になっていない）');
+  assert.equal(canonicalizeCalls, 1, 'canonicalizeが解決済みキャッシュ相当の再利用をせず余計に呼ばれている');
+});
+
+test('【yt-contract-tests】正本ID解決に失敗したカードは登録操作を提供せず、可視のエラーを出す（部分登録禁止）', async () => {
+  const warnings = [];
+  const search = loadContentSearch({ consoleImpl: { ...console, warn: (...args) => warnings.push(args) } });
+  const card = makeFakeYoutubeCardWrapper(300);
+  card.__source = { sourceId: '@broken', sourceName: 'Broken Channel' };
+  const adapter = makeCanonicalizingAdapter(async () => { throw new Error('canonical linkが見つかりませんでした'); });
+  const added = [];
+  const storage = {
+    getBlockedSources: async () => ({}),
+    getCachedSource: async () => null,
+    setCachedSource: async () => {},
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'collapse',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async (siteKey, sourceId, sourceName) => { added.push({ siteKey, sourceId, sourceName }); },
+    removeBlockedSource: async () => {},
+  };
+  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+
+  const anchor = card.querySelector('#dismissible');
+  const registerButton = anchor.querySelector('.cb-search-register-button');
+  assert.equal(registerButton, null, '解決失敗カードに機能する登録ボタンを出してはいけない（部分登録の入口になる）');
+  const errorBadge = anchor.querySelector('.cb-search-register-error');
+  assert.ok(errorBadge, '解決失敗カードに可視のエラーが出ていない');
+  assert.equal(errorBadge.style.opacity, undefined, 'エラーは常時可視であるべき（hover専用にしてはいけない）');
+  assert.equal(added.length, 0, '解決失敗時に生IDでの部分登録が行われている');
+  assert.equal(warnings.length, 1, '解決失敗をconsole.warnで記録していない');
+});
+

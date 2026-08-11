@@ -2,15 +2,22 @@
 // 根拠: docs/survey/media-sites.md（shiho 実地調査 2026-08-11）・docs/design-site-adapter.md（tsumugi 設計）。
 // カード ytd-video-renderer 内の a[href*="/@"] または a[href*="/channel/"] からチャンネル識別子を取得する。
 //
-// 【handle/UC 2形式の方針（v1 決定・design-site-adapter.md §3-3）】
-//   取れた形式をそのまま保存・照合する（正規化しない）。
-//   handle 形式: '/@MagicClub686' → sourceId = '@MagicClub686'（@ 付き）
-//   UC 形式    : '/channel/UCxxxxxx' → sourceId = 'UCxxxxxx'
+// 【handle/UC 正規化（v2決定・room裁定 2026-08-11・design-site-adapter.md §3-3を上書き）】
+//   plan成功条件2「片方だけ再出現する状態を許さない」を満たすため、UC形式を正本として正規化する。
+//   handle形式のカードは resolver.canonicalize() で実チャンネル応答（canonical link）から真のUC IDを
+//   解決してから保存・照合する。表示名は識別子として使わない。blockedSources には常にUC IDだけが
+//   キーとして入り、handle→UCの対応は itemSourceCache（storage.getCachedSource/setCachedSource、
+//   AliExpress等と同じ解決キャッシュ）を再利用してsiteKey='youtube'の名前空間に持つ。
+//   解決できない（fetch失敗・canonical link不在）場合は登録操作を提供しない
+//   （部分登録へのフォールバック禁止・エラーをカード上に明示する。CB_SEARCH側の実装参照）。
 //
-// 【実測（nagi 2026-08-11）】
-//   検索結果 23件中、handle 形式 11件・UC 形式 12件が混在。
-//   同一チャンネルが両形式で出たケース: 0件。
-//   各チャンネルは一方の形式のみで出た（YouTube が形式を決定する）。
+// 【実測（nagi 2026-08-11・kotone 2026-08-11）】
+//   検索結果で handle形式・UC形式が混在（同一チャンネルが両形式で出たケースは0件、DOM単独では
+//   紐付ける手段が無い）。
+// 【実測（mashiro 2026-08-11・curl直叩き）】
+//   `https://www.youtube.com/@NASA` の応答に `<link rel="canonical" href=".../channel/UC...">` が
+//   1件だけ含まれ、真のUC IDを確実に取得できる。逆方向 `https://www.youtube.com/channel/UC...` の
+//   応答にも `"canonicalBaseUrl":"/@handle"` が含まれる（bellが独立に再現・裁定[45]）。
 //
 // SPA・無限スクロール: MutationObserver 追従は CB_SEARCH エンジンが担当（shadow DOM なし・実測確認済み）。
 
@@ -65,6 +72,40 @@ const YOUTUBE_ADAPTER = {
 
       return null;
     },
+
+    /**
+     * rawSourceId（handle形式 '@xxx' またはUC形式 'UCxxx'）から正本のUC IDを解決する。
+     * UC形式は既に正本なのでfetchせずそのまま返す。handle形式は実チャンネル応答の
+     * canonical linkから真のUC IDを取得する。解決できなければthrow（フォールバック禁止）。
+     * @param {string} rawSourceId
+     * @returns {Promise<string>}
+     */
+    async canonicalize(rawSourceId) {
+      if (rawSourceId.startsWith('UC')) return rawSourceId;
+
+      const url = `https://www.youtube.com/${rawSourceId}`;
+      let res;
+      try {
+        res = await fetch(url);
+      } catch (err) {
+        throw new Error(`youtube: canonical解決のfetchに失敗しました rawSourceId=${rawSourceId}: ${err && err.message}`);
+      }
+      if (!res.ok) {
+        throw new Error(`youtube: canonical解決でHTTPエラー status=${res.status} rawSourceId=${rawSourceId}`);
+      }
+      const html = await res.text();
+      const m = /<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[^"]+)">/.exec(html);
+      if (!m) {
+        throw new Error(`youtube: canonical linkが見つかりませんでした rawSourceId=${rawSourceId}`);
+      }
+      return m[1];
+      // 実測例（2026-08-11 curl）: '@NASA' → 'UCLA_DiR1FfKNvjuUpBHmylQ'
+    },
+
+    // docs/design-youtube-surfaces.md §3: hover/focusで現れる登録トグルボタンを
+    // #dismissible（position:relative、kotone実測 docs/survey/youtube-home-search.md）へ挿入する。
+    // ホーム・検索結果どちらのカードにも同じ構造で使う想定（ホームは実DOM未確認、§1参照）。
+    register: { anchorSelector: '#dismissible' },
   },
 };
 

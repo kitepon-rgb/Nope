@@ -22,36 +22,79 @@ plan: nope-youtube-home / task: yt-contract-tests
 
 ---
 
-## 2. カード契約（ホーム・検索 共通）
+## 2. カード契約（ホーム・検索 共通）と識別子の正規化（plan成功条件2・確定）
 
-既存 `src/adapters/youtube.js` の `YOUTUBE_ADAPTER` をそのまま両面で使う。変更点は無い。
+既存 `src/adapters/youtube.js` の `YOUTUBE_ADAPTER` を両面で使う。`getSource` は変更しない
+（handle優先・UCフォールバックで生のIDを取る）が、**`resolver.canonicalize` を追加**し、
+UC形式を正本とする正規化を行う。
 
 ```javascript
 {
   siteKey: 'youtube',
-  matches: ['*://www.youtube.com/*'],   // 既存のまま。ホームもこのマッチに含まれる
+  matches: ['*://www.youtube.com/*'],
   cardSelector: 'ytd-video-renderer',
   getWrapper: (card) => card,
   resolver: {
     type: 'dom_id',
-    getSource(card) { /* 既存のまま：handle優先、UCフォールバック */ },
+    getSource(card) { /* 既存のまま：生のsourceId（'@handle' または 'UCxxx'）を返す */ },
+    async canonicalize(rawSourceId) { /* 下記 */ },
+    register: { anchorSelector: '#dismissible' },
   },
 }
 ```
 
-### 識別子の正規化（plan成功条件2への回答）
+### 検討経緯（3回の往復で確定）
 
-`docs/survey/youtube-home-search.md` の実測（55件中 handle 37 / UC 14 / リンクなし4、**同一チャンネルの
-両形式併存は0件**）と、`ytd-channel-name` に handle⇔UC を紐付ける `data-*` 属性が存在しないことから、
-**DOM だけでの正規化手段は無い**。`docs/design-site-adapter.md` §3-3 の v1 決定（取れた形式をそのまま
-保存・照合する、正規化しない）を維持する。
+1. 初版は「検知（`console.warn`）」で成功条件2を満たすとしたが、bellの差し戻し（room[35]、CONFIRMED）
+   により「検知は防止ではない」と指摘された。
+2. 再提案「見えている別形式カードへ同じ表示名で伝播ブロックする」を一度実装したが、bellの裁定（[42]）
+   により「同名の別チャンネルを誤ブロックする」「表示名だけを識別子にする互換処理という非目標に抵触する」
+   として撤回した。
+3. bellの追補（[43]）: 「実際のチャンネルページ／応答から対応を取得できた場合だけ同一扱いしてよい。
+   取得できない時は別IDのまま扱い、表示名推測・黙ったfallbackはしない」。
+4. mashiroが実測（2026-08-11・curl）: `fetch('https://www.youtube.com/@NASA')` の応答に
+   `<link rel="canonical" href="https://www.youtube.com/channel/UCLA_DiR1FfKNvjuUpBHmylQ">` が
+   1件だけ含まれる。逆方向 `fetch('https://www.youtube.com/channel/UC...')` の応答にも
+   `"canonicalBaseUrl":"/@NASA"` が含まれる。bellが独立に再現・確認（[45]）。
+5. bellの最終裁定（[45][47][48]）:
+   - 実チャンネル応答から得た handle→UC の alias 関係を永続化し、**照合は UC 正本へ正規化する**
+     （表示名は使わない）
+   - `blockedSources` の正本は **UC ID 1件のみ**。handle→UC 対応は別の alias map として持つ
+   - 解決に失敗した場合は **どちらの ID も変更せず**（部分登録禁止）、**登録ボタン上またはカード上へ
+     見えるエラーを出す**（console.warn だけでは不十分）
 
-**残存リスク**（既知のまま残す。片方だけ再出現する状態そのものは無くならない）:
-同一チャンネルが将来 handle 形式と UC 形式の両方でカードに現れた場合、片方だけの登録ではもう片方の
-カードにブロックが効かない。これは実装で解決できる問題ではなく（DOM 側に紐付け手段が無い）、
-「片方だけ再出現する状態を許さない」という成功条件は、**正規化ではなく検知**で満たす: §4 の
-「0件警告」と同様に、resolver が同一表示名で異なる sourceId を返すケースが一定数を超えたら
-`console.warn` する仕組みを yt-home-search で追加する（実装は yt-home-search の責務。本書は契約のみ確定）。
+### 実装（`src/adapters/youtube.js` / `src/content-search.js`）
+
+- `resolver.canonicalize(rawSourceId)`: UC形式（`UC`始まり）はfetchせずそのまま返す。handle形式は
+  `https://www.youtube.com/${rawSourceId}` をfetchし、応答HTMLの
+  `<link rel="canonical" href="https://www.youtube.com/channel/(UC...)">` から正本UC IDを取り出す。
+  fetch失敗・非200・canonical link不在は全てthrow（フォールバック禁止）。
+- alias map は新設せず、**既存の `itemSourceCache`（`storage.getCachedSource`/`setCachedSource`、
+  AliExpress等と同じ解決キャッシュ）を `siteKey='youtube'` の名前空間で再利用**する
+  （`getCachedSource('youtube', '@NASA')` → `'UCLA_DiR1FfKNvjuUpBHmylQ'`）。alias自体はブロック状態と
+  無関係な技術キャッシュなので、ブロック解除時に消さない（次回また同じ解決が要る時の再fetchを防ぐ）。
+- `content-search.js` の `handleDirectCard` は、`resolver.canonicalize` があるアダプタでは
+  生IDを直接 `directCardInfo` へ入れず、キャッシュ優先で `canonicalize` を解決してから
+  UC正本IDで `directCardInfo` に登録する。**解決成功時だけ**登録し、**失敗時は`resolutionFailed`
+  フラグを付けて登録**する（`directCardInfo`自体には入れる。次回スキャンでの自動リトライより、
+  常時可視のエラー表示を優先した——§後述）。
+- `applyDirectCard` は `resolutionFailed` の場合、通常のブロック判定・登録ボタンをスキップし、
+  常時可視（hover不要）のエラーバッジ（`.cb-search-register-error`、「⚠ 識別子解決に失敗」）を
+  `#dismissible` へ出す。ブロック/解除操作は一切提供しない（存在しない登録ボタンはクリックできない
+  ＝部分登録の入口が構造的に無い）。
+- 登録ボタンのクリック時、`storage.addBlockedSource`/`removeBlockedSource` は常に
+  `directCardInfo` に入っている**正本UC ID**を使う。生のhandleがblockedSourcesのキーになることはない。
+
+### 残る限界（意図的な残余リスク）
+
+- 解決成功後に `itemSourceCache` へキャッシュした値は、YouTube側でチャンネルのhandleが変更されると
+  古くなりうる（handle再割当は稀だが起きうる）。キャッシュは `clearCache`（popupの「キャッシュクリア」
+  ボタン、既存機能）で手動クリアできる——AliExpress等の既存キャッシュと同じ運用。
+- fetchそのものがYouTube側のbot対策等でブロックされる可能性は、AliExpressで実証済みのリスク
+  （AGENTS.md参照）。YouTubeの通常チャンネルページ取得がAliExpressと同様の壁に当たるかは
+  **実ブラウザでの検証が必要**（本タスクではcurl実測のみ。yt-package-smokeの実Chrome受入で
+  確認すること）。壁に当たった場合は全件が`resolutionFailed`になり、エラーバッジのみが出る
+  （誤ブロック・部分登録は発生しない——安全側に倒れる設計）。
 
 ---
 
@@ -147,4 +190,6 @@ CB_SEARCH にも追加する。**現状 CB_SEARCH にはこの検知が無い**�
 - 視聴ページの関連動画に対する発信元ブロック、キーワードブロック、並び替え
 - YouTube ホームに対するキーワードブロック
 - チャンネル表示名だけを識別子にする互換処理（YouTube検索・ホームでは使わない。関連動画の`nameOnly`実装ごと撤去）
-- handle⇔UC の API 正規化（`docs/design-site-adapter.md` §3-3 のとおり v1〜本工程でも先送り）
+- 公式 YouTube Data API（OAuth）を使った正規化。§2で実装したのはチャンネルページ応答の
+  `canonical link` を読む軽量な解決であり、公式APIではない（`docs/design-site-adapter.md` §3-3で
+  先送りされていたのはOAuth APIの話。本工程はより軽量な代替手段で成功条件2を満たした）
