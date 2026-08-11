@@ -4,7 +4,7 @@
   "display_name": "ChromeBlocker",
   "external_pane": {
     "title": "円卓",
-    "url": "https://peertable.kitepon.dev/ChromeBlocker",
-    "probe_url": "https://peertable.kitepon.dev/api/ChromeBlocker/members"
+    "url": "https://peertable.kitepon.dev/nope",
+    "probe_url": "https://peertable.kitepon.dev/api/nope/members"
   }
 }
