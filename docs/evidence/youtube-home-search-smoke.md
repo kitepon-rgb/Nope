@@ -2,11 +2,12 @@
 
 検証日: 2026-08-11 / 担当: kotone
 
-**この証跡は2回のsmokeを記録する。** 1回目(commit 7f05ee4時点)でChrome for Testing実ロード中に
-登録ボタンのtextContent欠落を発見しmashiroへ報告([69])、bell裁定[70]によりmashiroの修正commit
-7e70a24を経て2回目の再梱包・再smokeを実施し確定させた。以下は最終(2回目・確定)の結果。
+**この証跡は3回のsmokeを記録する。**
+1回目(commit 7f05ee4時点): Chrome for Testing実ロード中に登録ボタンのtextContent欠落を発見しmashiroへ報告([69])。
+2回目(commit 7e70a24時点): bell裁定[70]によるmashiroの修正を再梱包・再smokeで確定。**この時点でオーナー実Chrome受入(H)へ提出し、bell[82]によりホームでボタン0件として差し戻された**（自動検証は未ログインのため気付けなかった。ホームの実カードが`ytd-video-renderer`ではなく`ytd-rich-item-renderer`だったのが原因）。
+3回目(commit 3d29ac4時点): mashiroのホームDOM対応修正を再梱包・再smokeで確定。以下は最終(3回目・確定)の結果。
 
-## 自動検証（最終・commit 7e70a24時点）
+## 自動検証（最終・commit 3d29ac4時点）
 
 ### 全テスト実行
 
@@ -14,7 +15,7 @@
 node --test 'test/**/*.test.mjs'
 ```
 
-結果: **197件 pass / 0 fail**（既存回帰なし。登録ボタンtextContent修正の回帰防止アサーション含む）。
+結果: **201件 pass / 0 fail**（既存回帰なし。ホーム形式カード・広告カードスキップ・検索/ホーム混在スキャンの回帰防止テスト含む）。
 
 ### 再梱包
 
@@ -23,7 +24,7 @@ node scripts/pack.mjs
 ```
 
 - 出力: `dist/chromeblocker-v2.0.0.zip`
-- SHA-256: `21f0398ef910eb0df205c919027a2c18c6c2779d56925bc3b64f1608694763bf`（commit 7e70a24時点。1回目smoke時のSHA-256 `1afd7e90...` は修正前のビルドであり無効）
+- SHA-256: `5907e377445f5b497a2c8a13401aa9ea2781ec78cc8122c9a0922c354003e57d`（commit 3d29ac4時点。過去2回のSHA-256 `1afd7e90...`／`21f0398e...` はいずれも修正前のビルドであり無効）
 
 ### 隔離展開smoke（静的検証）
 
@@ -42,19 +43,21 @@ ZIPを隔離ディレクトリへ展開し、Pythonスクリプトでmanifest.js
 - `popup/popup.html`を直接開いて確認: コンソールエラー・警告0件
 - `https://www.youtube.com/results?search_query=nasa`: content script注入を確認（`ytd-video-renderer` 17件、1件目の`#dismissible`配下に`.cb-search-register-button`が挿入済み、**`textContent`は`'🚫 このチャンネルをブロック'`と正しく表示されることを確認（修正反映済み）**）。コンソールのエラー・警告はYouTube自身のもの（`manifest.webmanifest`のmigrate_from警告、未ログインによる`accounts.google.com`の401、動画プレビュー自動再生の`googlevideo.com`403×6件）のみで、Nope由来のエラーは0件
 - `https://www.youtube.com/watch?v=Q5_BtWc-G7Y`（視聴ページ）: `.cb-source-block-button` / `.cb-search-register-button` / `.cb-blocked-placeholder` いずれも**0件**——Nope UI・フィルタが一切注入されないことを確認（plan成功条件6・yt-watch-retireの受入と一致）
+- `https://www.youtube.com/`（ホーム・未ログイン）: カード0件（想定どおり）。**セレクタ壊れ検知の安全弁が実際に発火**し、`content-search: 初回スキャンでカードが0件。セレクタが壊れている可能性があります siteKey=youtube cardSelector=ytd-video-renderer, ytd-rich-item-renderer` というwarnをコンソールで確認（エラー・クラッシュではなくwarnとして黙らず可視化される設計どおりの挙動）。未ログインのため、修正後のホーム実カード(`ytd-rich-item-renderer`)へ登録ボタンが出ることの実ロード確認はできない——**この検証はH条件（オーナー実Chrome）に委ねる**
 
-### 1回目smokeで発見・解消済みの欠陥
+### 1回目・2回目smokeで発見・解消済みの欠陥
 
-`content-search.js`の`ensureRegisterButton`に`button.textContent`を設定するコードが無く、登録ボタンが実ページで**常に空欄表示**になっていた（`title`/`aria-label`は設定済み）。`docs/design-youtube-surfaces.md` §3-3の契約に反する欠陥として[69]で報告、bell裁定[70]「修正必須」を経てmashiroがcommit 7e70a24で修正。回帰防止テスト・自分の再監査(defect-free[74])・本smokeでの実表示確認の3点で解消を確認済み。
+1. **登録ボタンのtextContent欠落**（1回目→2回目で解消）: `content-search.js`の`ensureRegisterButton`に`button.textContent`を設定するコードが無く、登録ボタンが実ページで常に空欄表示だった。[69]で報告、bell裁定[70]を経てcommit 7e70a24で修正・確認済み。
+2. **ホームの実カード誤認**（2回目→3回目で解消）: `cardSelector: 'ytd-video-renderer'`のみだったため、ホームの実カード`ytd-rich-item-renderer`に登録ボタンが1件も出ない状態だった。2回目smoke後のH条件でbellがオーナー実Chromeで発見・差し戻し([82][86])、commit 3d29ac4で`cardSelector`複合化・アンカー関数化により修正・確認済み（本smokeのセレクタ壊れwarn文言もカード0件時点で新セレクタが反映されていることを裏付ける）。
 
-## オーナー実Chrome受入（H）— 未実施
+## オーナー実Chrome受入（H）— 再提出
 
-ログイン済みYouTubeでの以下5項目は、自動化ブラウザ（未ログイン・Chrome for Testing）では実施できない。**成功扱いにせず、オーナー確認待ちとする**:
+前回(2回目)提出分はホームのボタン0件で不合格([82])。今回(3回目・commit 3d29ac4)の自動検証で修正を確認済みのため、以下5項目のオーナー確認を再度お願いする:
 
-1. ホームの登録、ブロック、高さ維持、解除
+1. ホームの登録、ブロック、高さ維持、解除（**今回の修正対象。特に重点確認を推奨**）
 2. 検索の登録、ブロック、解除
 3. ホームと検索をまたぐ共有リスト
 4. SPA遷移と追加カードへの追従
 5. 視聴ページ関連動画にNopeのUIもフィルタも無い（自動検証で未ログイン状態は確認済み。ログイン状態での再確認はオーナー実施分）
 
-登録ボタンの表示テキスト欠落は自動検証段階で解消済みのため、H条件1・2の確認はブロックされない。
+自動化ブラウザ（未ログイン・Chrome for Testing）では上記5項目を確認できない。**成功扱いにせず、オーナー確認待ちとする**。
