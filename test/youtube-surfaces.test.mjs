@@ -23,6 +23,8 @@ function makeFakeElement(tagName) {
     style: { display: '', height: '', boxSizing: '', overflow: '', position: '' },
     textContent: '',
     innerHTML: '',
+    disabled: false,
+    isConnected: true, // floating buttonのdetach検知（bell裁定[107]）に使う
     children: [],
     parent: null,
     listeners: {},
@@ -33,6 +35,7 @@ function makeFakeElement(tagName) {
         el.parent.children = el.parent.children.filter((c) => c !== el);
         el.parent = null;
       }
+      el.isConnected = false;
     },
     querySelector(selector) {
       const match = /\.([\w-]+)/.exec(selector);
@@ -43,9 +46,22 @@ function makeFakeElement(tagName) {
   return el;
 }
 
+// floating button（bell裁定[107]）はdocument.body直下に生成される。body.appendChild/containsだけの
+// 必要最小限のfakeを用意する（makeFakeElementの汎用querySelector探索は使わない専用の器）。
+function makeFakeBody() {
+  const body = {
+    children: [],
+    appendChild(child) { body.children.push(child); return child; },
+    contains(node) { return body.children.includes(node); },
+  };
+  return body;
+}
+
 // docs/survey/youtube-home-search.md の実測: カードは div#dismissible(position:relative) を
 // 操作UIのアンカーに使える。#dismissible を子に持つ ytd-video-renderer 相当の wrapper を作る。
-function makeFakeYoutubeCardWrapper(measuredHeight) {
+// rect は floating button（bell裁定[107]）の位置計算に使う。省略時は既存呼び出しとの後方互換のため
+// measuredHeightから機械的に組み立てる。
+function makeFakeYoutubeCardWrapper(measuredHeight, rect) {
   const wrapper = makeFakeElement('ytd-video-renderer');
   const dismissible = makeFakeElement('div');
   dismissible.className = 'dismissible';
@@ -57,14 +73,15 @@ function makeFakeYoutubeCardWrapper(measuredHeight) {
     const cls = match ? match[1] : selector;
     return wrapper.children.find((c) => c.className === cls) || null;
   };
-  wrapper.getBoundingClientRect = () => ({ height: measuredHeight });
+  const effectiveRect = rect || { top: 0, left: 0, right: 400, bottom: measuredHeight, width: 400, height: measuredHeight };
+  wrapper.getBoundingClientRect = () => ({ ...effectiveRect, height: measuredHeight });
   return wrapper;
 }
 
 // bellの実Chrome実測[86]（オーナーのログイン済みホーム）: ホームの実カードは ytd-rich-item-renderer
 // （ytd-video-renderer ではない）。#dismissible は存在せず、#content がアンカー候補。
 // ytd-rich-item-renderer > div#content > yt-lockup-view-model > ... a[href="/@handle"] という構造。
-function makeFakeHomeCardWrapper(measuredHeight) {
+function makeFakeHomeCardWrapper(measuredHeight, rect) {
   const wrapper = makeFakeElement('ytd-rich-item-renderer');
   const content = makeFakeElement('div');
   content.className = 'content';
@@ -77,13 +94,30 @@ function makeFakeHomeCardWrapper(measuredHeight) {
     const cls = match ? match[1] : selector;
     return wrapper.children.find((c) => c.className === cls) || null;
   };
-  wrapper.getBoundingClientRect = () => ({ height: measuredHeight });
+  const effectiveRect = rect || { top: 0, left: 0, right: 400, bottom: measuredHeight, width: 400, height: measuredHeight };
+  wrapper.getBoundingClientRect = () => ({ ...effectiveRect, height: measuredHeight });
   return wrapper;
 }
 
-function loadContentSearch({ consoleImpl = console } = {}) {
+// win省略時は最小のダミーwindow（scroll/resize再配置テストだけがwinを明示的に渡す）。
+function makeFakeWindow({ innerWidth = 1280, innerHeight = 800 } = {}) {
+  const listeners = {};
+  return {
+    innerWidth,
+    innerHeight,
+    addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+    removeEventListener(type, fn) {
+      if (!listeners[type]) return;
+      listeners[type] = listeners[type].filter((f) => f !== fn);
+    },
+    dispatch(type) { (listeners[type] || []).forEach((fn) => fn()); },
+  };
+}
+
+function loadContentSearch({ consoleImpl = console, win = makeFakeWindow() } = {}) {
   const globals = {
     document: { querySelectorAll: () => [], body: {}, createElement: (tag) => makeFakeElement(tag) },
+    window: win,
     MutationObserver: FakeMutationObserver,
     setTimeout: (fn) => { fn(); return 0; },
     clearTimeout: () => {},
@@ -102,8 +136,9 @@ function loadContentSearch({ consoleImpl = console } = {}) {
   return vm.runInContext('CB_SEARCH', context);
 }
 
-// docs/design-youtube-surfaces.md §3-2 で確定した契約: dom_id resolver への
-// register.anchor オプトインで、未ブロックカードへトグルボタンを注入する。
+// docs/design-youtube-surfaces.md §3-2（floating方式への改訂、bell裁定[107]）: dom_id resolver への
+// register.mode==='floating' オプトインで、body直下の共有floating buttonを使う
+// （カード内挿入だとYouTubeの管理DOM再描画でボタンごと消える欠陥があった。オーナー実測: 23個→0個）。
 const YOUTUBE_LIKE_ADAPTER = {
   siteKey: 'youtube',
   cardSelector: 'ytd-video-renderer',
@@ -111,11 +146,14 @@ const YOUTUBE_LIKE_ADAPTER = {
   resolver: {
     type: 'dom_id',
     getSource: (card) => ({ sourceId: '@MagicClub686', sourceName: 'Magic Club' }),
-    register: { anchor: (card) => card.querySelector('#dismissible') },
+    register: { mode: 'floating' },
   },
 };
 
-test('【yt-contract-tests/red】CB_SEARCHは未ブロックカードへhover/focusで現れる登録ボタンを注入する（plan成功条件1）', async () => {
+// bell裁定[107]（オーナー実Chrome実測: カード内button挿入だと管理DOM再描画で23個→0個に消える）。
+// document.body直下に1個だけ生成する共有floating buttonへ設計変更。hover/focus中のカードの
+// getBoundingClientRectへ追従し、右下にinset配置する。
+test('【yt-contract-tests】floating buttonはbody直下に1個だけ生成され、カード内には挿入されない（bell裁定[107]）', async () => {
   const search = loadContentSearch();
   const card = makeFakeYoutubeCardWrapper(300);
   const storage = {
@@ -126,19 +164,112 @@ test('【yt-contract-tests/red】CB_SEARCHは未ブロックカードへhover/fo
     addBlockedSource: async () => {},
     removeBlockedSource: async () => {},
   };
-  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+  const body = makeFakeBody();
+  const doc = { querySelectorAll: () => [card], body, createElement: (tag) => makeFakeElement(tag) };
 
   const controller = search.init({ document: doc, storage, adapter: YOUTUBE_LIKE_ADAPTER });
   await controller.start();
 
   const anchor = card.querySelector('#dismissible');
-  const button = anchor.querySelector('.cb-search-register-button');
-  assert.ok(button, '#dismissible配下に登録ボタンが無い（CB_SEARCHに登録UIが未実装）');
+  assert.equal(anchor.querySelector('.cb-search-register-button'), null,
+    'カード内(#dismissible配下)に登録ボタンが挿入されている（body直下の共有floating方式に反する・bell裁定[107]）');
+  const buttons = body.children.filter((c) => c.className === 'cb-search-register-button');
+  assert.equal(buttons.length, 1, 'body直下に生成されたfloating buttonが1個ではない');
+  assert.equal(buttons[0].style.display, 'none', 'hover前からfloating buttonが表示されている');
+
+  card.listeners.mouseenter();
+  assert.notEqual(buttons[0].style.display, 'none', 'hover後にfloating buttonが表示されていない');
   // 2026-08-11 kotoneの実Chrome smokeで発見: textContent未設定のため視覚的に空欄ボタンだった欠陥[69]の回帰防止。
-  assert.equal(button.textContent, '🚫 このチャンネルをブロック', '登録ボタンの表示テキストが空/想定と異なる');
-  assert.equal(button.style.opacity, '0');
-  anchor.listeners.mouseenter && anchor.listeners.mouseenter();
-  assert.equal(button.style.opacity, '1');
+  assert.equal(buttons[0].textContent, '🚫 このチャンネルをブロック', '登録ボタンの表示テキストが空/想定と異なる');
+
+  // 右下配置: position:fixedでカードのright/bottomから計算する（bell裁定[107]「ハイライト内の右下」）。
+  assert.equal(buttons[0].style.position, 'fixed');
+  const rect = card.getBoundingClientRect();
+  assert.ok(parseFloat(buttons[0].style.right) >= 0 && parseFloat(buttons[0].style.right) < 1280 - rect.right + 40,
+    `right座標(${buttons[0].style.right})がカード右端基準の想定範囲外`);
+  assert.ok(parseFloat(buttons[0].style.bottom) >= 0 && parseFloat(buttons[0].style.bottom) < 800 - rect.bottom + 40,
+    `bottom座標(${buttons[0].style.bottom})がカード下端基準の想定範囲外`);
+
+  // カードからfloating button自身へpointerが移っても消えない（hover保持、bell裁定[107]）。
+  card.listeners.mouseleave({ relatedTarget: buttons[0] });
+  assert.notEqual(buttons[0].style.display, 'none', 'button自身への移動でfloating buttonが消えている（hover保持契約に反する）');
+  buttons[0].listeners.mouseleave({ relatedTarget: null });
+  assert.equal(buttons[0].style.display, 'none', 'button自身からの離脱後も表示されたまま');
+});
+
+test('【yt-contract-tests】YouTube管理DOMの再描画（カード要素の総入れ替え）でもfloating buttonは残り続け、新カードへ追従する（bell裁定[107]）', async () => {
+  const search = loadContentSearch();
+  const storage = {
+    getBlockedSources: async () => ({}),
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'placeholder',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async () => {},
+    removeBlockedSource: async () => {},
+  };
+  const body = makeFakeBody();
+  let cards = [makeFakeYoutubeCardWrapper(300)];
+  const doc = { querySelectorAll: () => cards, body, createElement: (tag) => makeFakeElement(tag) };
+
+  const controller = search.init({ document: doc, storage, adapter: YOUTUBE_LIKE_ADAPTER });
+  await controller.start();
+
+  const oldCard = cards[0];
+  oldCard.listeners.mouseenter();
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
+  assert.notEqual(button.style.display, 'none');
+
+  // 管理DOM再描画: 旧カードがdisconnectし、新しいDOM要素（同一チャンネル）に置き換わる想定。
+  oldCard.remove();
+  const newCard = makeFakeYoutubeCardWrapper(300);
+  cards = [newCard];
+  controller.scan(doc);
+
+  assert.equal(button.style.display, 'none', 'disconnectしたカードのfloating buttonが隠れていない');
+  const buttonsAfterRerender = body.children.filter((c) => c.className === 'cb-search-register-button');
+  assert.equal(buttonsAfterRerender.length, 1, '再描画後にfloating buttonが増殖している（body直下1個の共有契約に反する）');
+
+  newCard.listeners.mouseenter();
+  assert.notEqual(button.style.display, 'none', '再描画後の新カードへのhoverでfloating buttonが出ていない');
+});
+
+test('【yt-contract-tests】scroll/resizeでfloating buttonの位置が再計算される（bell裁定[107]）', async () => {
+  const win = makeFakeWindow();
+  const search = loadContentSearch({ win });
+  const card = makeFakeYoutubeCardWrapper(300, { top: 100, left: 50, right: 450, bottom: 400, width: 400, height: 300 });
+  const storage = {
+    getBlockedSources: async () => ({}),
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'placeholder',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async () => {},
+    removeBlockedSource: async () => {},
+  };
+  const body = makeFakeBody();
+  const doc = { querySelectorAll: () => [card], body, createElement: (tag) => makeFakeElement(tag) };
+
+  const controller = search.init({ document: doc, storage, adapter: YOUTUBE_LIKE_ADAPTER });
+  await controller.start();
+
+  card.listeners.mouseenter();
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
+  const bottomBefore = button.style.bottom;
+
+  // カードがスクロールで移動した状態を模す。
+  card.getBoundingClientRect = () => ({ top: -50, left: 50, right: 450, bottom: 250, width: 400, height: 300 });
+  win.dispatch('scroll');
+  assert.notEqual(button.style.bottom, bottomBefore, 'scroll後にfloating buttonの位置が再計算されていない');
+
+  const rightBefore = button.style.right;
+  card.getBoundingClientRect = () => ({ top: 10, left: 50, right: 900, bottom: 310, width: 850, height: 300 });
+  win.dispatch('resize');
+  assert.notEqual(button.style.right, rightBefore, 'resize後にfloating buttonの位置が再計算されていない');
+
+  // bell裁定[119]: scrollでカードがviewport外へ完全に出たら、端に張り付かせず隠す
+  // （width/heightだけの判定だとviewport外でも「見える」扱いになる不具合の回帰防止）。
+  card.getBoundingClientRect = () => ({ top: -400, left: 50, right: 450, bottom: -100, width: 400, height: 300 });
+  win.dispatch('scroll');
+  assert.equal(button.style.display, 'none', 'カードがviewport外へ出てもfloating buttonが表示されたまま（端に張り付いている）');
 });
 
 test('【yt-contract-tests/red】CB_SEARCHのplaceholderは元カードの実測高さを保持する（plan成功条件5）', async () => {
@@ -198,8 +329,7 @@ function makeCanonicalizingAdapter(canonicalizeImpl, findHandleAliasImpl) {
     resolver: {
       type: 'dom_id',
       getSource: (card) => card.__source,
-      // 本番と同じ優先順（#dismissible→#content）。ホームには#dismissibleが無い（実測[86]）。
-      register: { anchor: (card) => card.querySelector('#dismissible') || card.querySelector('#content') },
+      register: { mode: 'floating' },
       canonicalize: canonicalizeImpl,
       findHandleAlias: findHandleAliasImpl || (async () => { throw new Error('findHandleAlias未実装（このテストでは呼ばれない想定）'); }),
     },
@@ -280,7 +410,8 @@ test('【yt-contract-tests】登録ボタンのクリック時だけcanonicalize
   const storage = makeAliasAwareStorage({
     addBlockedSource: async (siteKey, sourceId, sourceName) => { added.push({ siteKey, sourceId, sourceName }); },
   });
-  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+  const body = makeFakeBody();
+  const doc = { querySelectorAll: () => [card], body, createElement: (tag) => makeFakeElement(tag) };
 
   const controller = search.init({ document: doc, storage, adapter });
   await controller.start();
@@ -288,9 +419,9 @@ test('【yt-contract-tests】登録ボタンのクリック時だけcanonicalize
 
   assert.equal(canonicalizeCalls, 0, '登録ボタンをクリックする前にcanonicalizeが呼ばれている');
 
-  const anchor = card.querySelector('#dismissible');
-  const button = anchor.querySelector('.cb-search-register-button');
-  assert.ok(button, '未確認handleカードにも通常の登録ボタンが出ているはず（エラー扱いにしない）');
+  card.listeners.mouseenter();
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
+  assert.ok(button, '未確認handleカードにも通常のfloating buttonが出ているはず（エラー扱いにしない）');
   await button.listeners.click({ preventDefault() {}, stopPropagation() {} });
 
   assert.equal(canonicalizeCalls, 1, 'クリック時に一度だけcanonicalizeが呼ばれるべき');
@@ -310,24 +441,23 @@ test('【yt-contract-tests】未確認handleカードは通常の登録ボタン
   const storage = makeAliasAwareStorage({
     addBlockedSource: async (siteKey, sourceId, sourceName) => { added.push({ siteKey, sourceId, sourceName }); },
   });
-  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+  const body = makeFakeBody();
+  const doc = { querySelectorAll: () => [card], body, createElement: (tag) => makeFakeElement(tag) };
 
   const controller = search.init({ document: doc, storage, adapter });
   await controller.start();
   await new Promise((r) => setImmediate(r));
 
-  const anchor = card.querySelector('#dismissible');
-  const buttonBeforeClick = anchor.querySelector('.cb-search-register-button');
-  assert.ok(buttonBeforeClick, '未確認handleカードの初期表示で通常の登録ボタンが出ていない（誤ってエラー扱いしている）');
-  assert.equal(anchor.querySelector('.cb-search-register-error'), null, 'クリック前からエラーバッジが出ている');
+  card.listeners.mouseenter();
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
+  assert.ok(button, '未確認handleカードの初期表示で通常のfloating buttonが出ていない（誤ってエラー扱いしている）');
+  assert.equal(button.textContent, '🚫 このチャンネルをブロック', 'クリック前からエラー表示になっている');
 
-  await buttonBeforeClick.listeners.click({ preventDefault() {}, stopPropagation() {} });
+  await button.listeners.click({ preventDefault() {}, stopPropagation() {} });
 
-  const registerButtonAfterClick = anchor.querySelector('.cb-search-register-button');
-  assert.equal(registerButtonAfterClick.style.display, 'none', '解決失敗後も機能する登録ボタンが見えている');
-  const errorBadge = anchor.querySelector('.cb-search-register-error');
-  assert.ok(errorBadge, '解決失敗後に可視のエラーが出ていない');
-  assert.equal(errorBadge.style.opacity, undefined, 'エラーは常時可視であるべき（hover専用にしてはいけない）');
+  // floating方式（bell裁定[107]）: エラーは別要素のバッジではなく、共有buttonのテキスト/disabledで表す。
+  assert.equal(button.textContent, '⚠ 識別子解決に失敗', '解決失敗後にエラー表示へ切り替わっていない');
+  assert.equal(button.disabled, true, '解決失敗後もクリック可能な登録ボタンのままになっている');
   assert.equal(added.length, 0, '解決失敗時に生IDでの部分登録が行われている');
   assert.equal(warnings.length, 1, '解決失敗をconsole.warnで記録していない');
 });
@@ -349,14 +479,15 @@ test('【yt-contract-tests】UC形式カードのブロック時にもhandle側a
   const storage = makeAliasAwareStorage({
     addBlockedSource: async (siteKey, sourceId, sourceName) => { added.push({ siteKey, sourceId, sourceName }); },
   });
-  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+  const body = makeFakeBody();
+  const doc = { querySelectorAll: () => [card], body, createElement: (tag) => makeFakeElement(tag) };
 
   const controller = search.init({ document: doc, storage, adapter });
   await controller.start();
   await new Promise((r) => setImmediate(r));
 
-  const anchor = card.querySelector('#dismissible');
-  const button = anchor.querySelector('.cb-search-register-button');
+  card.listeners.mouseenter();
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
   await button.listeners.click({ preventDefault() {}, stopPropagation() {} });
 
   assert.equal(findHandleAliasCalls, 1, 'UCカードのブロック時にfindHandleAliasが呼ばれていない');
@@ -378,18 +509,19 @@ test('【yt-contract-tests】UC形式カードのhandle解決に失敗したら�
   const storage = makeAliasAwareStorage({
     addBlockedSource: async (siteKey, sourceId, sourceName) => { added.push({ siteKey, sourceId, sourceName }); },
   });
-  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+  const body = makeFakeBody();
+  const doc = { querySelectorAll: () => [card], body, createElement: (tag) => makeFakeElement(tag) };
 
   const controller = search.init({ document: doc, storage, adapter });
   await controller.start();
   await new Promise((r) => setImmediate(r));
 
-  const anchor = card.querySelector('#dismissible');
-  const button = anchor.querySelector('.cb-search-register-button');
+  card.listeners.mouseenter();
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
   await button.listeners.click({ preventDefault() {}, stopPropagation() {} });
 
   assert.equal(added.length, 0, 'handle解決に失敗したのにUC側がブロックされている');
-  assert.ok(anchor.querySelector('.cb-search-register-error'), 'UCカードのhandle解決失敗時に可視エラーが出ていない');
+  assert.equal(button.textContent, '⚠ 識別子解決に失敗', 'UCカードのhandle解決失敗時にエラー表示になっていない');
   assert.equal(warnings.length, 1);
 });
 
@@ -430,45 +562,47 @@ test('【yt-contract-tests】ブロック済みUC形式カードの解除（plac
 // ytd-rich-item-renderer で #dismissible が無く #content がアンカー候補。yt-lockup-view-model を
 // cardSelectorに直接使うと広告カード内部の入れ子まで拾ってしまう。広告カードはgetSourceがnullを
 // 返すため既存の「source無しはスキップ」処理で自然に除外される（広告固有の判定コードは無い）。
-test('【yt-contract-tests】ホーム形式カード(ytd-rich-item-renderer)は#dismissibleが無くても#contentへ登録ボタンを出す', async () => {
+test('【yt-contract-tests】ホーム形式カード(ytd-rich-item-renderer)は#dismissibleが無くてもhoverでfloating buttonが出る', async () => {
   const search = loadContentSearch();
   const homeCard = makeFakeHomeCardWrapper(280);
   homeCard.__source = { sourceId: '@NASA', sourceName: 'NASA' };
   const adapter = makeCanonicalizingAdapter(async () => { throw new Error('このテストでは呼ばれない想定'); });
   const storage = makeAliasAwareStorage();
-  const doc = { querySelectorAll: () => [homeCard], body: {}, createElement: (tag) => makeFakeElement(tag) };
+  const body = makeFakeBody();
+  const doc = { querySelectorAll: () => [homeCard], body, createElement: (tag) => makeFakeElement(tag) };
 
   const controller = search.init({ document: doc, storage, adapter });
   await controller.start();
   await new Promise((r) => setImmediate(r));
 
   assert.equal(homeCard.querySelector('#dismissible'), null, '前提: ホームカードに#dismissibleは無い');
-  const content = homeCard.querySelector('#content');
-  assert.ok(content, '前提: #contentが存在するはず');
-  const button = content.querySelector('.cb-search-register-button');
-  assert.ok(button, 'ホーム形式カードの#content配下に登録ボタンが出ていない');
+  homeCard.listeners.mouseenter();
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
+  assert.ok(button, 'ホーム形式カードのhoverでfloating buttonが出ていない');
   assert.equal(button.textContent, '🚫 このチャンネルをブロック');
 });
 
-test('【yt-contract-tests】発信元リンクが無いカード（広告カード相当）は登録ボタンもエラーも出さずスキップされる', async () => {
+test('【yt-contract-tests】発信元リンクが無いカード（広告カード相当）はhoverしてもfloating buttonが出ない', async () => {
   const search = loadContentSearch();
   const adCard = makeFakeHomeCardWrapper(280);
   adCard.__source = null; // getSourceが対象リンク無しでnullを返す実際の広告カードを模す（bell実測[86]）
   const adapter = makeCanonicalizingAdapter(async () => { throw new Error('このテストでは呼ばれない想定'); });
   const storage = makeAliasAwareStorage();
-  const doc = { querySelectorAll: () => [adCard], body: {}, createElement: (tag) => makeFakeElement(tag) };
+  const body = makeFakeBody();
+  const doc = { querySelectorAll: () => [adCard], body, createElement: (tag) => makeFakeElement(tag) };
 
   const controller = search.init({ document: doc, storage, adapter });
   await controller.start();
   await new Promise((r) => setImmediate(r));
 
-  const content = adCard.querySelector('#content');
-  assert.equal(content.querySelector('.cb-search-register-button'), null, '広告カードに登録ボタンが出ている');
-  assert.equal(content.querySelector('.cb-search-register-error'), null, '広告カードにエラーバッジが出ている（source無しはエラーではない）');
+  assert.equal(adCard.listeners.mouseenter, undefined,
+    '広告カード（source無し）にhoverリスナーが付いている（floating buttonの入口を持つべきでない）');
+  assert.equal(body.children.filter((c) => c.className === 'cb-search-register-button').length, 0,
+    '広告カード相当でfloating buttonが生成されている');
   assert.equal(adCard.style.display, '', '広告カードの表示状態が変更されている（触ってはいけない）');
 });
 
-test('【yt-contract-tests】検索結果カードとホームカードが混在するスキャンでも両方処理される', async () => {
+test('【yt-contract-tests】検索結果カードとホームカードが混在するスキャンでも、それぞれのhoverで共有floating buttonが正しく追従する', async () => {
   const search = loadContentSearch();
   const searchCard = makeFakeYoutubeCardWrapper(300);
   searchCard.__source = { sourceId: '@SearchChannel', sourceName: 'Search Channel' };
@@ -476,15 +610,22 @@ test('【yt-contract-tests】検索結果カードとホームカードが混在
   homeCard.__source = { sourceId: '@HomeChannel', sourceName: 'Home Channel' };
   const adapter = makeCanonicalizingAdapter(async () => { throw new Error('このテストでは呼ばれない想定'); });
   const storage = makeAliasAwareStorage();
-  const doc = { querySelectorAll: () => [searchCard, homeCard], body: {}, createElement: (tag) => makeFakeElement(tag) };
+  const body = makeFakeBody();
+  const doc = { querySelectorAll: () => [searchCard, homeCard], body, createElement: (tag) => makeFakeElement(tag) };
 
   const controller = search.init({ document: doc, storage, adapter });
   await controller.start();
   await new Promise((r) => setImmediate(r));
 
-  assert.ok(searchCard.querySelector('#dismissible').querySelector('.cb-search-register-button'),
-    '検索カード側の登録ボタンが出ていない（混在スキャンで検索側が壊れた）');
-  assert.ok(homeCard.querySelector('#content').querySelector('.cb-search-register-button'),
-    'ホームカード側の登録ボタンが出ていない（混在スキャンでホーム側が壊れた）');
+  searchCard.listeners.mouseenter();
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
+  assert.notEqual(button.style.display, 'none', '検索カードのhoverでfloating buttonが出ていない（混在スキャンで検索側が壊れた）');
+
+  searchCard.listeners.mouseleave({ relatedTarget: null });
+  homeCard.listeners.mouseenter();
+  assert.notEqual(button.style.display, 'none', 'ホームカードのhoverでfloating buttonが出ていない（混在スキャンでホーム側が壊れた）');
+
+  const buttonsInBody = body.children.filter((c) => c.className === 'cb-search-register-button');
+  assert.equal(buttonsInBody.length, 1, '検索・ホーム混在でfloating buttonが複数生成されている');
 });
 

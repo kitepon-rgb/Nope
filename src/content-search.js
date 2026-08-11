@@ -37,6 +37,14 @@ const CB_SEARCH = (() => {
   // ensureSourceButton と同じUX）。resolver.register が無いアダプタ（rakuten等）は無関係。
   const REGISTER_BUTTON_CLASS = 'cb-search-register-button';
 
+  // bell裁定2026-08-11[107]（オーナー実Chrome実測: カード内button挿入だと、YouTubeの管理DOM
+  // 再描画でカードごと破棄されボタンも消える。初期23個→再描画後0個）。
+  // resolver.register.mode === 'floating' のアダプタ（現状YouTubeのみ）だけ、カード内へは挿入せず
+  // document.body直下に1個だけ生成する共有ボタンをhover/focus中のカードへ追従させる。
+  // 既存のカード内挿入方式（ensureRegisterButton/applyRegisterButton、rakuten等が使う可能性のある
+  // 汎用経路）はこの節の下に温存し、一切変更しない。
+  const FLOATING_INSET_PX = 8;
+
   /** @returns {string} 拡張同梱のマスコット画像URL（chrome.runtime.getURL経由） */
   function getMascotImageUrl() {
     return chrome.runtime.getURL(MASCOT_IMAGE_PATH);
@@ -318,6 +326,170 @@ const CB_SEARCH = (() => {
     button.textContent = blocked ? 'ブロック解除' : '🚫 このチャンネルをブロック';
   }
 
+  // ---- floating button方式（bell裁定[107]）: resolver.register.mode === 'floating' のアダプタだけ使う ----
+  // カード内挿入(ensureRegisterButton/applyRegisterButton、上記)とは完全に独立した経路。
+  // init()呼び出しごとに1組の状態を持つ（複数カードで1個のbuttonを共有する）。
+
+  let floatingButton = null;
+  let floatingHoverCard = null;
+  let floatingHoverCtx = null;
+
+  function hideFloatingButtonNow() {
+    if (floatingButton) floatingButton.style.display = 'none';
+    floatingHoverCard = null;
+    floatingHoverCtx = null;
+  }
+
+  function positionFloatingButtonOverCard(card) {
+    if (!floatingButton || typeof card.getBoundingClientRect !== 'function') return;
+    const rect = card.getBoundingClientRect();
+    const win = typeof window !== 'undefined' ? window : null;
+    const viewportWidth = (win && win.innerWidth) || 0;
+    const viewportHeight = (win && win.innerHeight) || 0;
+    floatingButton.style.top = '';
+    floatingButton.style.left = '';
+    floatingButton.style.right = `${Math.max(0, viewportWidth - rect.right + FLOATING_INSET_PX)}px`;
+    floatingButton.style.bottom = `${Math.max(0, viewportHeight - rect.bottom + FLOATING_INSET_PX)}px`;
+  }
+
+  /** クリック時のブロック/解除処理。ensureRegisterButtonのクリックハンドラと同じ契約
+   * （安定IDのクリック時解決・部分登録禁止・即時反映）をfloatingHoverCtx経由で実行する。 */
+  async function handleFloatingButtonClick(event) {
+    if (event) {
+      if (event.preventDefault) event.preventDefault();
+      if (event.stopPropagation) event.stopPropagation();
+    }
+    const ctx = floatingHoverCtx;
+    if (!ctx || ctx.resolutionFailed) return;
+    const button = floatingButton;
+    button.disabled = true;
+    let keepDisabled = false;
+    try {
+      const current = await ctx.storage.getBlockedSources(ctx.siteKey);
+      if (current[ctx.sourceId]) {
+        await ctx.storage.removeBlockedSource(ctx.siteKey, ctx.sourceId);
+      } else {
+        let resolvedSourceId = ctx.sourceId;
+        if (ctx.resolveBeforeToggle) {
+          try {
+            resolvedSourceId = await ctx.resolveBeforeToggle();
+          } catch (err) {
+            console.warn(`content-search: クリック時の識別子解決に失敗しました siteKey=${ctx.siteKey}`, err);
+            keepDisabled = true;
+            if (ctx.onResolutionFailed) ctx.onResolutionFailed();
+            return;
+          }
+        }
+        await ctx.storage.addBlockedSource(ctx.siteKey, resolvedSourceId, ctx.sourceName);
+      }
+      if (ctx.onToggled) await ctx.onToggled();
+    } finally {
+      if (!keepDisabled) button.disabled = false;
+    }
+  }
+
+  function ensureFloatingButton(doc) {
+    if (floatingButton) return floatingButton;
+    const button = doc.createElement('button');
+    button.type = 'button';
+    button.className = REGISTER_BUTTON_CLASS;
+    Object.assign(button.style, {
+      position: 'fixed', zIndex: '2147483647',
+      cursor: 'pointer', border: `1px solid ${COLOR_ORANGE}`, background: COLOR_WHITE,
+      color: COLOR_ORANGE_DEEP, borderRadius: '4px', padding: '4px 8px', fontSize: '12px',
+      display: 'none',
+    });
+    // bell裁定[107]: カードからbutton自身へpointer/focusが移っても消えない（hover/focus保持）。
+    // relatedTargetが直前のhover対象カードなら、そちらへ戻る動きとみなして隠さない。
+    button.addEventListener('mouseleave', (event) => {
+      if (event && event.relatedTarget === floatingHoverCard) return;
+      hideFloatingButtonNow();
+    });
+    // bell裁定[119]: keyboardでbutton→cardへ戻るfocus移動もhover同様に保持する
+    // （relatedTargetが直前のhover対象カードなら隠さない）。
+    button.addEventListener('blur', (event) => {
+      if (event && event.relatedTarget === floatingHoverCard) return;
+      hideFloatingButtonNow();
+    });
+    button.addEventListener('click', handleFloatingButtonClick);
+    if (doc.body && doc.body.appendChild) doc.body.appendChild(button);
+    floatingButton = button;
+    return button;
+  }
+
+  function showFloatingButtonForCard(doc, card, ctx) {
+    const button = ensureFloatingButton(doc);
+    floatingHoverCard = card;
+    floatingHoverCtx = ctx;
+    positionFloatingButtonOverCard(card);
+    button.style.display = '';
+    if (ctx.resolutionFailed) {
+      const label = '識別子解決に失敗しました';
+      button.textContent = '⚠ 識別子解決に失敗';
+      button.title = 'このチャンネルのブロック操作は利用できません（識別子の解決に失敗しました。ページを再読み込みすると再試行します）';
+      if (button.setAttribute) button.setAttribute('aria-label', label);
+      button.disabled = true;
+    } else {
+      const label = ctx.sourceName || ctx.sourceId;
+      button.textContent = ctx.blocked ? 'ブロック解除' : '🚫 このチャンネルをブロック';
+      button.title = `${label} のブロックを切り替える`;
+      if (button.setAttribute) button.setAttribute('aria-label', `${label} のブロックを切り替える`);
+      button.disabled = false;
+    }
+  }
+
+  const floatingContextByCard = new WeakMap();
+  const floatingHoverAttached = new WeakSet();
+
+  /** カードへhover/focusリスナーを一度だけ付け、最新のctxをfloatingContextByCardへ保持する。
+   * 現在floating buttonが対象カードを表示中なら内容を即時反映する（blocked状態の変化等に追従）。 */
+  function applyFloatingRegisterButton(doc, card, wrapper, ctx) {
+    floatingContextByCard.set(card, ctx);
+    ensureFloatingButton(doc); // hover前でもbody直下に(非表示で)1個だけ存在させる
+
+    if (floatingHoverCard === card) {
+      if (ctx.blocked && !ctx.resolutionFailed) {
+        hideFloatingButtonNow();
+      } else {
+        showFloatingButtonForCard(doc, card, ctx);
+      }
+    }
+
+    if (floatingHoverAttached.has(card)) return;
+    floatingHoverAttached.add(card);
+
+    const handleEnter = () => {
+      const latestCtx = floatingContextByCard.get(card);
+      if (!latestCtx) return;
+      if (latestCtx.blocked && !latestCtx.resolutionFailed) return; // ブロック済みはplaceholder側の解除ボタンに委ねる
+      showFloatingButtonForCard(doc, card, latestCtx);
+    };
+    const handleLeave = (event) => {
+      if (event && event.relatedTarget === floatingButton) return;
+      hideFloatingButtonNow();
+    };
+    if (wrapper.addEventListener) {
+      wrapper.addEventListener('mouseenter', handleEnter);
+      wrapper.addEventListener('mouseleave', handleLeave);
+      wrapper.addEventListener('focusin', handleEnter);
+      wrapper.addEventListener('focusout', handleLeave);
+    }
+  }
+
+  /** floating buttonの対象カードがdisconnect/不可視/viewport外になっていないか確認する
+   * （bell裁定[107][119]）。widthやheightだけでなく、scroll移動でカードがviewport外へ完全に
+   * 出た場合（bottom<=0やtop>=innerHeight等）も「もう見えていない」として扱う。 */
+  function isFloatingTargetVisible(card) {
+    if (card.isConnected === false) return false;
+    if (typeof card.getBoundingClientRect !== 'function') return true;
+    const rect = card.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    const win = typeof window !== 'undefined' ? window : null;
+    const viewportWidth = (win && win.innerWidth) || 0;
+    const viewportHeight = (win && win.innerHeight) || 0;
+    return rect.bottom > 0 && rect.right > 0 && rect.top < viewportHeight && rect.left < viewportWidth;
+  }
+
   /**
    * @param {{style: {display: string}}} wrapper @param {boolean} blocked
    * @param {{mode?: string, storeName?: string, onUnblock?: Function}} [options]
@@ -512,6 +684,10 @@ const CB_SEARCH = (() => {
       return canonicalId;
     }
 
+    // resolver.register.mode === 'floating' の時だけ、カード内挿入(applyRegisterButton)ではなく
+    // 共有floating buttonの経路(applyFloatingRegisterButton)を使う（bell裁定[107]）。
+    const isFloatingRegister = !!(resolver.register && resolver.register.mode === 'floating');
+
     function applyDirectCard(card) {
       const info = directCardInfo.get(card);
       if (!info) return;
@@ -519,12 +695,18 @@ const CB_SEARCH = (() => {
       if (info.resolutionFailed) {
         applyVisibility(info.wrapper, false, { mode: displayMode });
         if (resolver.register) {
-          applyRegisterButton({
-            doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper: info.wrapper,
-            resolveAnchor: resolver.register.anchor,
-            sourceId: info.rawSourceId, sourceName: info.sourceName,
-            siteKey, storage, blocked: false, resolutionFailed: true, onToggled: async () => {},
-          });
+          const ctx = {
+            siteKey, storage, sourceId: info.rawSourceId, sourceName: info.sourceName,
+            blocked: false, resolutionFailed: true,
+          };
+          if (isFloatingRegister) {
+            applyFloatingRegisterButton(doc, card, info.wrapper, ctx);
+          } else {
+            applyRegisterButton({
+              doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper: info.wrapper,
+              resolveAnchor: resolver.register.anchor, onToggled: async () => {}, ...ctx,
+            });
+          }
         }
         return;
       }
@@ -539,12 +721,11 @@ const CB_SEARCH = (() => {
       );
 
       if (resolver.register) {
-        applyRegisterButton({
-          doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper: info.wrapper,
-          resolveAnchor: resolver.register.anchor,
+        const ctx = {
+          siteKey, storage,
           sourceId: displaySourceId !== null ? displaySourceId : info.rawSourceId,
           sourceName: info.sourceName,
-          siteKey, storage, blocked,
+          blocked,
           // ブロック操作をする時だけ、もう一方の形式のaliasを解決してから正本IDで登録する
           // （解除は既知IDだけで完結するので不要——click handler側でブロック時だけ呼ぶ）。
           resolveBeforeToggle: resolver.canonicalize ? async () => {
@@ -560,7 +741,15 @@ const CB_SEARCH = (() => {
             blockedSources = await storage.getBlockedSources(siteKey);
             applyDirectCard(card);
           },
-        });
+        };
+        if (isFloatingRegister) {
+          applyFloatingRegisterButton(doc, card, info.wrapper, ctx);
+        } else {
+          applyRegisterButton({
+            doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper: info.wrapper,
+            resolveAnchor: resolver.register.anchor, ...ctx,
+          });
+        }
       }
     }
 
@@ -626,12 +815,34 @@ const CB_SEARCH = (() => {
         }
       }
       for (const card of cards) handleCard(card);
+
+      // floating buttonの対象カードがdisconnect/不可視/viewport外になっていたら隠す（bell裁定[107][119]）。
+      // isFloatingRegisterでないアダプタではfloatingHoverCardは常にnullなので無害。
+      if (floatingHoverCard && !isFloatingTargetVisible(floatingHoverCard)) {
+        hideFloatingButtonNow();
+      }
     }
 
     async function start() {
       blockedSources = await storage.getBlockedSources(siteKey);
       displayMode = await storage.getDisplayMode();
       if (resolver.canonicalize) sourceAliases = await storage.getSourceAliases(siteKey);
+      // floating buttonはhover/focus中のカードのrectへ追従する。scroll/resizeで再計算する
+      // （bell裁定[107]）。カードがviewport外へ出ていたら位置決めせず隠す（bell裁定[119]:
+      // scroll中にrepositionがMath.max(0)でviewport端へ張り付かせてしまう不具合の修正）。
+      // isFloatingRegisterでないアダプタでは登録しない。
+      if (isFloatingRegister && typeof window !== 'undefined' && window.addEventListener) {
+        const reposition = () => {
+          if (!floatingHoverCard) return;
+          if (!isFloatingTargetVisible(floatingHoverCard)) {
+            hideFloatingButtonNow();
+            return;
+          }
+          positionFloatingButtonOverCard(floatingHoverCard);
+        };
+        window.addEventListener('scroll', reposition, true);
+        window.addEventListener('resize', reposition);
+      }
       scan(doc);
 
       const observer = new MutationObserver(() => scan(doc));

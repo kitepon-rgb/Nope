@@ -145,15 +145,13 @@ const YOUTUBE_ADAPTER = {
       // 実測例（2026-08-11 curl）: 'UCLA_DiR1FfKNvjuUpBHmylQ' → '@NASA'
     },
 
-    // docs/design-youtube-surfaces.md §3: hover/focusで現れる登録トグルボタンを挿入する。
-    // 検索結果は #dismissible（kotone実測）、ホームは #content（bell実測[86]、#dismissible無し）。
-    // カード種別で分岐せず「#dismissibleがあれば使う、無ければ#content、どちらも無ければcard自体」の
-    // 優先順で決める（cardSelectorが複数面を1つのadapterで拾うため、呼び出し側で面を判定しない）。
-    register: {
-      anchor(card) {
-        return (card.querySelector && (card.querySelector('#dismissible') || card.querySelector('#content'))) || null;
-      },
-    },
+    // 【floating button方式（room裁定2026-08-11・bell[107]、オーナー実Chrome実測）】
+    //   カード内へ直接挿入する方式（旧: anchor(card)で#dismissible/#contentへ挿入）は、
+    //   YouTubeの管理DOM再描画（React的な内部更新）でカードごと破棄され、挿入したボタンも
+    //   一緒に消える欠陥があった（実測: 初期23個→再描画後0個）。document.body直下に1個だけ
+    //   生成する共有floating buttonへ変更し、hover/focus中のカードのgetBoundingClientRectへ
+    //   position:fixedで追従させる（実装はcontent-search.js側、mode==='floating'で分岐）。
+    register: { mode: 'floating' },
   },
 };
 

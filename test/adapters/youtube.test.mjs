@@ -212,13 +212,14 @@ test('YouTube: findHandleAliasはcanonicalBaseUrlが無い応答ではthrowす�
   await assert.rejects(() => adapter.resolver.findHandleAlias('UC1'), /canonicalBaseUrlが見つかりません/);
 });
 
-// room裁定2026-08-11・bell実測[86]（オーナー実Chromeでの差し戻し）: ホームには#dismissibleが無い。
-test('YouTube: register.anchorは#dismissibleを優先し、無ければ#contentへフォールバックする', () => {
+// room裁定2026-08-11・bell裁定[107]（オーナー実Chrome実測: カード内button挿入だとYouTubeの管理DOM
+// 再描画でボタンごと消える。初期23個→再描画後0個）。カード内挿入用の`register.anchor(card)`方式は
+// 廃止し、document.body直下の共有floating buttonへ配置する`register.mode === 'floating'`契約へ
+// 置き換えた（実装はcontent-search.js側）。anchorフィールドが残っていないことを回帰確認する。
+test('YouTube: register.mode は floating で、カード内挿入用のanchorは持たない（bell裁定[107]）', () => {
   const adapter = loadAdapter();
-  const dismissibleCard = { querySelector: (sel) => (sel === '#dismissible' ? { tag: 'dismissible-el' } : null) };
-  const contentOnlyCard = { querySelector: (sel) => (sel === '#content' ? { tag: 'content-el' } : null) };
-  const neitherCard = { querySelector: () => null };
-  assert.equal(adapter.resolver.register.anchor(dismissibleCard).tag, 'dismissible-el');
-  assert.equal(adapter.resolver.register.anchor(contentOnlyCard).tag, 'content-el');
-  assert.equal(adapter.resolver.register.anchor(neitherCard), null);
+  assert.equal(adapter.resolver.register.mode, 'floating',
+    'register.modeがfloatingでない（カード内挿入方式に戻っている）');
+  assert.equal(adapter.resolver.register.anchor, undefined,
+    'register.anchorが残っている（廃止したはずのカード内挿入方式の名残）');
 });
