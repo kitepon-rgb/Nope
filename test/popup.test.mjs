@@ -137,15 +137,19 @@ test('renderBlockedListはエントリが0のサイトを表示しない', async
   assert.equal(containerEl.children.length, 1);
 });
 
-test('renderSourceRowはnameOnlyエントリに⚠ 名前マッチバッジを付ける', () => {
+test('renderSourceRowはnameOnlyエントリに改名・同名誤ブロックの警告を付ける', () => {
   const popup = loadPopup();
   const row = popup.renderSourceRow(
     '西スポWEB OTTO!',
     { name: '西スポWEB OTTO!', addedAt: 1000, nameOnly: true },
     async () => {}
   );
-  const hasBadge = row.children.some((child) => child.textContent?.includes('名前マッチ'));
-  assert.ok(hasBadge, '名前マッチバッジが見つからない');
+  const warning = row.children.find((child) => child.className === 'cb-name-warning');
+  assert.ok(warning, '表示名判定の警告が見つからない');
+  assert.match(warning.textContent, /改名/);
+  assert.match(warning.textContent, /同名の別発信元/);
+  assert.match(warning.title, /解除/);
+  assert.match(warning.title, /誤ってブロック/);
 });
 
 test('renderSourceRowはIDベースエントリにバッジを付けない', () => {
@@ -155,8 +159,8 @@ test('renderSourceRowはIDベースエントリにバッジを付けない', () 
     { name: '愛度楽天市場店', addedAt: 1000 },
     async () => {}
   );
-  const hasBadge = row.children.some((child) => child.textContent?.includes('名前マッチ'));
-  assert.ok(!hasBadge, 'IDベースエントリにバッジが付いている');
+  const hasWarning = row.children.some((child) => child.className === 'cb-name-warning');
+  assert.ok(!hasWarning, 'IDベースエントリに表示名判定の警告が付いている');
 });
 
 test('renderKeywordListはキーワードがない時に空メッセージを出す', async () => {

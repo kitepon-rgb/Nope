@@ -75,11 +75,11 @@ const CB_POPUP = (() => {
     li.append(label);
 
     if (info.nameOnly) {
-      const badge = document.createElement('span');
-      badge.className = 'cb-name-badge';
-      badge.textContent = '⚠ 名前マッチ';
-      badge.title = 'この発信元は名前でブロックされています。発信元が名前を変えると自動的に解除されます';
-      li.append(badge);
+      const warning = document.createElement('span');
+      warning.className = 'cb-name-warning';
+      warning.textContent = '⚠ 表示名で判定：改名・同名の別発信元に注意';
+      warning.title = '表示名でブロックしているため、発信元が改名すると解除され、同名の別発信元も誤ってブロックする可能性があります';
+      li.append(warning);
     }
 
     const removeBtn = document.createElement('button');
