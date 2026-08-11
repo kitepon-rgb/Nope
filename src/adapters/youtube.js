@@ -102,6 +102,36 @@ const YOUTUBE_ADAPTER = {
       // 実測例（2026-08-11 curl）: '@NASA' → 'UCLA_DiR1FfKNvjuUpBHmylQ'
     },
 
+    /**
+     * 逆方向: 正本UC IDから対応するhandleを解決する（room裁定 2026-08-11・[55][58]）。
+     * UCカードを起点にブロックした場合でも、同じチャンネルが後でhandle形式カードとして
+     * 現れた時に「片方だけ再出現する」ことを防ぐため、UC側クリック時にもhandleを解決する。
+     * fetch失敗・非200・**canonicalBaseUrlパターン不一致は全てthrow**——
+     * 「パターンが見つからない＝handleが無い」と推測しない（bell裁定[58]: 黙ったfallback禁止。
+     * 応答が解析できない場合は同一性未確定として扱い、UC側のブロックも成立させない）。
+     * @param {string} canonicalUCId
+     * @returns {Promise<string>} handle形式（'@xxx'）
+     */
+    async findHandleAlias(canonicalUCId) {
+      const url = `https://www.youtube.com/channel/${canonicalUCId}`;
+      let res;
+      try {
+        res = await fetch(url);
+      } catch (err) {
+        throw new Error(`youtube: handle解決のfetchに失敗しました canonicalUCId=${canonicalUCId}: ${err && err.message}`);
+      }
+      if (!res.ok) {
+        throw new Error(`youtube: handle解決でHTTPエラー status=${res.status} canonicalUCId=${canonicalUCId}`);
+      }
+      const html = await res.text();
+      const m = /"canonicalBaseUrl":"\/(@[^"]+)"/.exec(html);
+      if (!m) {
+        throw new Error(`youtube: canonicalBaseUrlが見つかりませんでした（handle不在とは断定しない） canonicalUCId=${canonicalUCId}`);
+      }
+      return m[1];
+      // 実測例（2026-08-11 curl）: 'UCLA_DiR1FfKNvjuUpBHmylQ' → '@NASA'
+    },
+
     // docs/design-youtube-surfaces.md §3: hover/focusで現れる登録トグルボタンを
     // #dismissible（position:relative、kotone実測 docs/survey/youtube-home-search.md）へ挿入する。
     // ホーム・検索結果どちらのカードにも同じ構造で使う想定（ホームは実DOM未確認、§1参照）。

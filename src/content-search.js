@@ -219,20 +219,22 @@ const CB_SEARCH = (() => {
       }
       button.disabled = true;
       try {
-        let resolvedSourceId = sourceId;
-        if (resolveBeforeToggle) {
-          try {
-            resolvedSourceId = await resolveBeforeToggle();
-          } catch (err) {
-            console.warn(`content-search: クリック時の識別子解決に失敗しました siteKey=${siteKey}`, err);
-            if (onResolutionFailed) onResolutionFailed();
-            return;
-          }
-        }
         const current = await storage.getBlockedSources(siteKey);
-        if (current[resolvedSourceId]) {
-          await storage.removeBlockedSource(siteKey, resolvedSourceId);
+        if (current[sourceId]) {
+          // 既にこのIDでブロック済み: 解除は既知IDだけで完結する。もう一方の形式のalias解決は不要
+          // （解除のために新たな通信を要求しない）。
+          await storage.removeBlockedSource(siteKey, sourceId);
         } else {
+          let resolvedSourceId = sourceId;
+          if (resolveBeforeToggle) {
+            try {
+              resolvedSourceId = await resolveBeforeToggle();
+            } catch (err) {
+              console.warn(`content-search: クリック時の識別子解決に失敗しました siteKey=${siteKey}`, err);
+              if (onResolutionFailed) onResolutionFailed();
+              return;
+            }
+          }
           await storage.addBlockedSource(siteKey, resolvedSourceId, sourceName);
         }
         if (onToggled) await onToggled();
@@ -478,10 +480,24 @@ const CB_SEARCH = (() => {
       return sourceAliases[rawSourceId] || null;
     }
 
-    // クリック時だけ呼ばれる。既知ならfetchせずそのまま返し、未知ならresolver.canonicalizeでfetchして
-    // sourceAliases（chrome.storage.sync、端末間共有）へ保存する。失敗はthrow（部分登録禁止）。
+    // このUC IDに対応する既知のhandleが既にsourceAliasesにあるか（逆引き）。
+    function hasKnownHandleFor(canonicalUCId) {
+      return Object.values(sourceAliases).includes(canonicalUCId);
+    }
+
+    // クリック時だけ呼ばれる。両方向とも「既知ならfetchしない・未知なら実チャンネル応答で解決し
+    // sourceAliases（chrome.storage.sync、端末間共有）へ保存する・失敗はthrow」という対称な契約。
+    // room裁定[55][58]: UC起点のブロックだけ済ませてhandle側を学習しないと、後で同じチャンネルが
+    // handle形式カードとして現れた時に「片方だけ再出現する」。canonicalBaseUrl不在をhandleなしと
+    // 推測してはいけない（findHandleAlias側でthrowする）。
     async function resolveAliasOnDemand(rawSourceId) {
-      const known = knownCanonicalId(rawSourceId);
+      if (rawSourceId.startsWith('UC')) {
+        if (hasKnownHandleFor(rawSourceId)) return rawSourceId;
+        const handle = await resolver.findHandleAlias(rawSourceId);
+        sourceAliases = await storage.setSourceAlias(siteKey, handle, rawSourceId);
+        return rawSourceId;
+      }
+      const known = sourceAliases[rawSourceId];
       if (known) return known;
       const canonicalId = await resolver.canonicalize(rawSourceId);
       sourceAliases = await storage.setSourceAlias(siteKey, rawSourceId, canonicalId);
@@ -505,42 +521,33 @@ const CB_SEARCH = (() => {
         return;
       }
 
-      if (info.sourceId === null) {
-        // aliasがまだ未確認: 誤ってブロック済みと見せない安全側の既定（未ブロック表示）。
-        // 登録ボタンは通常どおり出し、クリック時にだけ解決（fetch）を試みる。
-        applyVisibility(info.wrapper, false, { mode: displayMode });
-        if (resolver.register) {
-          applyRegisterButton({
-            doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper: info.wrapper,
-            anchorSelector: resolver.register.anchorSelector,
-            sourceId: info.rawSourceId, sourceName: info.sourceName,
-            siteKey, storage, blocked: false,
-            resolveBeforeToggle: async () => {
-              const canonicalId = await resolveAliasOnDemand(info.rawSourceId);
-              directCardInfo.set(card, { ...info, sourceId: canonicalId });
-              return canonicalId;
-            },
-            onResolutionFailed: () => {
-              directCardInfo.set(card, { ...info, resolutionFailed: true });
-              applyDirectCard(card);
-            },
-            onToggled: async () => {
-              blockedSources = await storage.getBlockedSources(siteKey);
-              applyDirectCard(card);
-            },
-          });
-        }
-        return;
-      }
+      // displaySourceId は null のことがある（handle形式でaliasがまだ未確認）。
+      // その場合は誤ってブロック済みと見せない安全側の既定（未ブロック表示）にする。
+      const displaySourceId = info.sourceId;
+      const blocked = displaySourceId !== null && isBlocked(displaySourceId);
+      applyVisibility(
+        info.wrapper, blocked,
+        displaySourceId !== null ? buildVisibilityOptions(displaySourceId, info.sourceName) : { mode: displayMode },
+      );
 
-      const blocked = isBlocked(info.sourceId);
-      applyVisibility(info.wrapper, blocked, buildVisibilityOptions(info.sourceId, info.sourceName));
       if (resolver.register) {
         applyRegisterButton({
           doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper: info.wrapper,
           anchorSelector: resolver.register.anchorSelector,
-          sourceId: info.sourceId, sourceName: info.sourceName,
+          sourceId: displaySourceId !== null ? displaySourceId : info.rawSourceId,
+          sourceName: info.sourceName,
           siteKey, storage, blocked,
+          // ブロック操作をする時だけ、もう一方の形式のaliasを解決してから正本IDで登録する
+          // （解除は既知IDだけで完結するので不要——click handler側でブロック時だけ呼ぶ）。
+          resolveBeforeToggle: resolver.canonicalize ? async () => {
+            const canonicalId = await resolveAliasOnDemand(info.rawSourceId);
+            directCardInfo.set(card, { ...info, sourceId: canonicalId });
+            return canonicalId;
+          } : undefined,
+          onResolutionFailed: resolver.canonicalize ? () => {
+            directCardInfo.set(card, { ...info, resolutionFailed: true });
+            applyDirectCard(card);
+          } : undefined,
           onToggled: async () => {
             blockedSources = await storage.getBlockedSources(siteKey);
             applyDirectCard(card);

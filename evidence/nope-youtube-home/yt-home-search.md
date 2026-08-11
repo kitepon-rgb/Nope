@@ -74,7 +74,29 @@ alias（handle→UC対応）を`chrome.storage.sync`の`sourceAliases`キーへ�
 クリック時に初めて解決を試みる。修正後、bell異議への直接の回帰防止テストを含む
 CB_SEARCH統合テスト4件で新しい契約を検証済み。privacy.md/listing.mdの記述はスキャン時fetchを
 前提にしていなかったため文言修正は不要だったが、`itemSourceCache`→`sourceAliases`（sync）への
-言及は修正した。
+言及は修正した（commit 197526c）。
+
+## 監査で見つかった欠陥と修正 その2（commit 197526c → 修正）
+
+**欠陥（bell異議[55]・kotone監査[57]で確定、CONFIRMED）**: 197526cの修正はhandle→UC方向
+（handle形式カードのクリックで正本UCを解決）だけを実装しており、**逆方向（UC形式カードのクリックで
+対応するhandleを解決）が抜けていた**。`resolver.canonicalize`は元々handle→UCの一方向のみで、
+UC形式カード（kotone実測で55件中14件）をクリックしてブロックしても`sourceAliases`には何も
+保存されない。結果、同じチャンネルが後でhandle形式カードとして現れると、alias未確認のまま
+「未ブロック」表示になる——plan成功条件2「片方だけ再出現する状態を許さない」に文字どおり反する
+再現可能な欠陥だった。
+
+**修正**: `src/adapters/youtube.js`に逆方向の`resolver.findHandleAlias(canonicalUCId)`を追加
+（`https://www.youtube.com/channel/{UC}`をfetchし応答の`"canonicalBaseUrl":"/@handle"`から
+handleを取り出す）。`content-search.js`の`resolveAliasOnDemand`をhandle/UC両方向に対応させ、
+UC形式カードのブロック時にも`findHandleAlias`を呼んでaliasを学習・保存するようにした。
+bellの裁定（[58]）どおり、**ベストエフォートにはしていない**——fetch失敗・非200・
+`canonicalBaseUrl`パターン不一致は全て「同一性未確定」としてUC側もブロックせず可視エラーを出す
+（パターン不在を「handleなし」と推測するfallbackは実装していない）。解除操作は既存の登録ボタンが
+既にブロック済みIDを検知した場合、alias解決なしで即座に完結する（不要な通信をしない）ようクリック
+ハンドラを分岐した。`findHandleAlias`単体テスト4件、CB_SEARCH統合テスト3件
+（UC起点ブロック時のalias学習・解決失敗時の可視エラーとブロック不成立・解除時の通信0件）を追加。
+`node --test 'test/**/*.test.mjs'`で**197件全てpass**（既存回帰なし）を確認済み。
 
 ## 未確認・残る限界（意図的に持ち越したもの）
 
@@ -92,6 +114,10 @@ CB_SEARCH統合テスト4件で新しい契約を検証済み。privacy.md/listi
   （`setSourceAlias`は上書き保存）。
 - **未確認のhandleカードは、登録ボタンを一度もクリックしなければ「片方だけ再出現する」可能性が
   残る**（意図的な残余リスク。`docs/design-youtube-surfaces.md` §2「残る限界」参照）。
+- **vanity handleを持たない（またはcanonicalBaseUrlパターンで確定できない）チャンネルは、
+  UC形式カードからも登録ボタンでブロックできない**（bell裁定[58]の帰結。「パターン不在＝handle
+  なし」と推測しない設計上、恒久的にresolutionFailedになる）。実運用での影響規模は
+  `yt-package-smoke`の実Chrome受入で確認する。
 
 ## 変更ファイル
 

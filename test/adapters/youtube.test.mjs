@@ -177,3 +177,34 @@ test('YouTube: canonicalizeはcanonical linkが無い応答ではthrowする（�
   const adapter = loadAdapter({ fetch: async () => ({ ok: true, text: async () => '<html>no canonical here</html>' }) });
   await assert.rejects(() => adapter.resolver.canonicalize('@NASA'), /canonical linkが見つかりません/);
 });
+
+// room裁定[55][58]: UC起点のブロックでも逆方向（UC→handle）を解決してaliasを学習しないと、
+// 同じチャンネルが後でhandle形式カードとして現れた時に「片方だけ再出現する」。
+test('YouTube: findHandleAliasはUC IDから実チャンネル応答のcanonicalBaseUrlでhandleへ解決する', async () => {
+  const html = '<html><body>...."canonicalBaseUrl":"/@NASA"....</body></html>';
+  let requestedUrl = null;
+  const adapter = loadAdapter({
+    fetch: async (url) => {
+      requestedUrl = url;
+      return { ok: true, text: async () => html };
+    },
+  });
+  const result = await adapter.resolver.findHandleAlias('UCLA_DiR1FfKNvjuUpBHmylQ');
+  assert.equal(result, '@NASA');
+  assert.equal(requestedUrl, 'https://www.youtube.com/channel/UCLA_DiR1FfKNvjuUpBHmylQ');
+});
+
+test('YouTube: findHandleAliasはfetch失敗時にthrowする（部分登録へのフォールバック禁止）', async () => {
+  const adapter = loadAdapter({ fetch: async () => { throw new Error('network down'); } });
+  await assert.rejects(() => adapter.resolver.findHandleAlias('UC1'), /fetchに失敗/);
+});
+
+test('YouTube: findHandleAliasはHTTPエラー応答時にthrowする', async () => {
+  const adapter = loadAdapter({ fetch: async () => ({ ok: false, status: 404, text: async () => '' }) });
+  await assert.rejects(() => adapter.resolver.findHandleAlias('UC1'), /HTTPエラー/);
+});
+
+test('YouTube: findHandleAliasはcanonicalBaseUrlが無い応答ではthrowする（handle不在と推測しない・bell裁定[58]）', async () => {
+  const adapter = loadAdapter({ fetch: async () => ({ ok: true, text: async () => '<html>no canonicalBaseUrl here</html>' }) });
+  await assert.rejects(() => adapter.resolver.findHandleAlias('UC1'), /canonicalBaseUrlが見つかりません/);
+});

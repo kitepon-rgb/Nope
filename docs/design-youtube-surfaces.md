@@ -69,14 +69,27 @@ UC形式を正本とする正規化を行う。
    （「ユーザーがブロック/解除操作した時のみ」）と実態が食い違う欠陥だった。加えて、alias保存に
    使った `itemSourceCache` は `chrome.storage.local`（端末間非同期）で、blockedSources
    （`chrome.storage.sync`）と非対称という指摘も受けた。**§下記のとおり作り直した。**
+7. **bellの異議（[55]）・kotoneの監査（[57]）でさらに欠陥確定・修正**: 6の修正はhandle→UC方向
+   （handleカードのクリックで正本UCを解決）だけを実装しており、**逆方向（UC→handle）が抜けていた**。
+   UC形式カードをクリックしてブロックしても`sourceAliases`には何も保存されず、同じチャンネンルが
+   後でhandle形式カードとして現れると alias 未確認のまま「未ブロック」表示になり、plan成功条件2
+   「片方だけ再出現する状態を許さない」に文字どおり反する再現可能な欠陥だった。
+   bellの裁定（[58]）: UC側クリック時も実チャンネル応答からhandleを解決してから正本UCをブロックする。
+   **ベストエフォート（解決失敗でもUC側は独立にブロック可）は採用しない**——fetch失敗・非200・
+   `canonicalBaseUrl`パターン不一致は全て「同一性未確定」としてUC側もブロックせず可視エラーを出す
+   （`canonicalBaseUrl`が見つからないことを「handleが存在しない」と推測するfallbackは禁止）。
 
 ### 実装（`src/storage.js` / `src/adapters/youtube.js` / `src/content-search.js`）
 
-- **`resolver.canonicalize(rawSourceId)`**（`src/adapters/youtube.js`）: UC形式（`UC`始まり）は
-  fetchせずそのまま返す。handle形式は `https://www.youtube.com/${rawSourceId}` をfetchし、応答HTMLの
-  `<link rel="canonical" href="https://www.youtube.com/channel/(UC...)">` から正本UC IDを取り出す。
-  fetch失敗・非200・canonical link不在は全てthrow（フォールバック禁止）。**この関数はfetchするので、
-  呼び出しはユーザーのクリック時だけに限定する（下記）。**
+- **`resolver.canonicalize(rawSourceId)`**（handle→UC、`src/adapters/youtube.js`）: UC形式
+  （`UC`始まり）はfetchせずそのまま返す。handle形式は `https://www.youtube.com/${rawSourceId}` を
+  fetchし、応答HTMLの `<link rel="canonical" href="https://www.youtube.com/channel/(UC...)">` から
+  正本UC IDを取り出す。fetch失敗・非200・canonical link不在は全てthrow（フォールバック禁止）。
+- **`resolver.findHandleAlias(canonicalUCId)`**（UC→handle、逆方向。`src/adapters/youtube.js`）:
+  `https://www.youtube.com/channel/${canonicalUCId}` をfetchし、応答HTMLの
+  `"canonicalBaseUrl":"/(@...)"` からhandleを取り出す。fetch失敗・非200・**パターン不一致は
+  全てthrow**——「見つからない＝handleが存在しない」と推測しない（bell裁定[58]）。
+- **両関数ともfetchするので、呼び出しはユーザーのクリック時だけに限定する（下記）。**
 - **alias保存は `chrome.storage.sync` の新規キー `sourceAliases`**（`src/storage.js` の
   `getSourceAliases`/`setSourceAlias`/`onSourceAliasesChanged`、`blockedSources`と同型・同じ
   ストレージ領域）。`itemSourceCache`（local、端末固有）は使わない——alias は blockedSources と同じく
@@ -84,17 +97,25 @@ UC形式を正本とする正規化を行う。
 - **スキャン時（`handleDirectCard`）は通信しない。** 既知の `sourceAliases`（`start()`時に読み込み、
   `onSourceAliasesChanged`で他端末同期・同一ページ内の別カード解決を反映）を参照するだけで、
   handle形式かつ未知のカードは `sourceId: null`（「まだ確認していない」）のまま `directCardInfo` に入る。
-- **`applyDirectCard` の `sourceId === null` 分岐**: 安全側で「未ブロック」表示にし、**通常の登録ボタン**
-  を出す（エラー表示ではない——ユーザーはまだ何も試みていないので、失敗したかのように見せない）。
-  ボタンには `resolveBeforeToggle` を渡し、**クリック時にだけ** `resolver.canonicalize` を呼ぶ
-  （キャッシュ済みなら呼ばない）。
-- **クリック時の解決失敗**: ブロック状態を一切変更せず（`storage.addBlockedSource`/
-  `removeBlockedSource` を呼ぶ前にthrowで中断）、`onResolutionFailed` でカードを
-  `resolutionFailed: true` へ切り替え、常時可視（hover不要）のエラーバッジ
-  （`.cb-search-register-error`、「⚠ 識別子解決に失敗」）を出す。既存の登録ボタンは隠す
-  （部分登録の入口を残さない）。
-- クリック時の解決成功は `storage.setSourceAlias` で `sourceAliases` へ保存され、以後そのhandleは
-  スキャン時にもfetchなしで即座に正本照合できる。
+  UC形式カードは常に `sourceId` がその場で確定する（handle aliasの既知/未知に関わらず、UC自体は
+  既に正本のため——表示・照合には影響しない。alias完全性が影響するのは「ブロックする」操作だけ）。
+- **`resolveBeforeToggle` は resolver.canonicalize があるアダプタの登録ボタン全てに付く**
+  （handle・UCどちらの形式のカードでも）。中身は `resolveAliasOnDemand(rawSourceId)`:
+  - `rawSourceId` がUC形式: 既にこのUCに対応する handle が `sourceAliases` の値に含まれていれば
+    fetchせずそのまま返す。無ければ `findHandleAlias` を呼び、成功したら
+    `sourceAliases[handle] = UC` を保存してからUCを返す。
+  - `rawSourceId` がhandle形式: `sourceAliases[handle]` があればそのまま返す。無ければ
+    `canonicalize` を呼び、成功したら `sourceAliases[handle] = UC` を保存してからUCを返す。
+  - **いずれも失敗はthrow**。呼び出し元（クリックハンドラ）はブロック状態を一切変更しない。
+- **クリックハンドラは「ブロックする時だけ」`resolveBeforeToggle` を呼ぶ。** 既に該当IDで
+  ブロック済み（＝解除操作）の場合は、解決不要でそのまま `removeBlockedSource` する
+  （解除のために新たな通信を要求しない——解除は既知IDだけで完結する）。
+- **クリック時の解決失敗**: ブロック状態を一切変更せず（`storage.addBlockedSource` を呼ぶ前に
+  throwで中断）、`onResolutionFailed` でカードを `resolutionFailed: true` へ切り替え、
+  常時可視（hover不要）のエラーバッジ（`.cb-search-register-error`、「⚠ 識別子解決に失敗」）を出す。
+  既存の登録ボタンは隠す（部分登録の入口を残さない）。
+- クリック時の解決成功は双方向とも `storage.setSourceAlias` で `sourceAliases` へ保存され、
+  以後そのhandle/UCペアはスキャン時にもfetchなしで即座に正本照合できる。
 
 ### 残る限界（意図的な残余リスク）
 
@@ -103,6 +124,11 @@ UC形式を正本とする正規化を行う。
   違い、**ユーザーがそのカードの登録ボタンを一度でも押せば即座に解決し、以後は再出現しない**。
   完全に自動で防ぐには全カードへの積極的な解決が要り、それは今回撤回した「表示するだけで通信」と
   同じ問題を再導入するため、意図的にこの残余リスクを受け入れた。
+- **vanity handleを持たない（または `canonicalBaseUrl` パターンで確定できない）チャンネルは、
+  UC形式カードからも登録ボタンでブロックできない**（bell裁定[58]の直接の帰結）。
+  `findHandleAlias` は「パターンが見つからない」ことを「handleが存在しない」と断定できないため、
+  毎回失敗として扱い、可視エラーを出し続ける。実運用でこれが問題になる規模かは
+  `yt-package-smoke` の実Chrome受入で確認し、必要ならオーナーへ再度議題化する。
 - fetchそのものがYouTube側のbot対策等でブロックされる可能性は、AliExpressで実証済みのリスク
   （AGENTS.md参照）。YouTubeの通常チャンネルページ取得がAliExpressと同様の壁に当たるかは
   **実ブラウザでの検証が必要**（本タスクではcurl実測のみ。yt-package-smokeの実Chrome受入で

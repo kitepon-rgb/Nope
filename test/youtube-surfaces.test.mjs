@@ -166,7 +166,7 @@ test('【yt-contract-tests/red】youtube_watch.js アダプタが撤去されて
 // chrome.storage.sync（storage.getSourceAliases/setSourceAlias、端末間で共有）に持つ。
 // 通信（canonicalize呼び出し）は「表示するだけ」では絶対に発生させず、ユーザーが登録ボタンを
 // クリックした時だけ発生させる（bell異議[51]・kotone監査[52]で欠陥指摘、修正）。
-function makeCanonicalizingAdapter(canonicalizeImpl) {
+function makeCanonicalizingAdapter(canonicalizeImpl, findHandleAliasImpl) {
   return {
     siteKey: 'youtube',
     cardSelector: 'ytd-video-renderer',
@@ -176,6 +176,7 @@ function makeCanonicalizingAdapter(canonicalizeImpl) {
       getSource: (card) => card.__source,
       register: { anchorSelector: '#dismissible' },
       canonicalize: canonicalizeImpl,
+      findHandleAlias: findHandleAliasImpl || (async () => { throw new Error('findHandleAlias未実装（このテストでは呼ばれない想定）'); }),
     },
   };
 }
@@ -304,5 +305,99 @@ test('【yt-contract-tests】未確認handleカードは通常の登録ボタン
   assert.equal(errorBadge.style.opacity, undefined, 'エラーは常時可視であるべき（hover専用にしてはいけない）');
   assert.equal(added.length, 0, '解決失敗時に生IDでの部分登録が行われている');
   assert.equal(warnings.length, 1, '解決失敗をconsole.warnで記録していない');
+});
+
+// room裁定[55][58]（bell異議・kotone監査[57]で確定した欠陥の修正）: UC形式カードをクリックして
+// ブロックする時も、逆方向（UC→handle）を解決してsourceAliasesへ保存しなければならない。
+// そうしないと、同じチャンネルが後でhandle形式カードとして現れた時に「片方だけ再出現する」
+// （plan成功条件2違反）。
+test('【yt-contract-tests】UC形式カードのブロック時にもhandle側aliasを解決・保存する（片方だけ再出現させない）', async () => {
+  const search = loadContentSearch();
+  const card = makeFakeYoutubeCardWrapper(300);
+  card.__source = { sourceId: 'UCLA_DiR1FfKNvjuUpBHmylQ', sourceName: 'NASA' };
+  let findHandleAliasCalls = 0;
+  const adapter = makeCanonicalizingAdapter(
+    async () => { throw new Error('このテストではcanonicalizeは呼ばれない想定'); },
+    async (uc) => { findHandleAliasCalls += 1; assert.equal(uc, 'UCLA_DiR1FfKNvjuUpBHmylQ'); return '@NASA'; },
+  );
+  const added = [];
+  const storage = makeAliasAwareStorage({
+    addBlockedSource: async (siteKey, sourceId, sourceName) => { added.push({ siteKey, sourceId, sourceName }); },
+  });
+  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+
+  const anchor = card.querySelector('#dismissible');
+  const button = anchor.querySelector('.cb-search-register-button');
+  await button.listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  assert.equal(findHandleAliasCalls, 1, 'UCカードのブロック時にfindHandleAliasが呼ばれていない');
+  assert.deepEqual(added, [{ siteKey: 'youtube', sourceId: 'UCLA_DiR1FfKNvjuUpBHmylQ', sourceName: 'NASA' }]);
+  assert.equal(await storage.getSourceAliases('youtube').then((a) => a['@NASA']), 'UCLA_DiR1FfKNvjuUpBHmylQ',
+    'UC起点のブロックでhandle側aliasがsourceAliasesへ保存されていない');
+});
+
+test('【yt-contract-tests】UC形式カードのhandle解決に失敗したらブロックせず可視エラーを出す（canonicalBaseUrl不在をhandleなしと推測しない・bell裁定[58]）', async () => {
+  const warnings = [];
+  const search = loadContentSearch({ consoleImpl: { ...console, warn: (...args) => warnings.push(args) } });
+  const card = makeFakeYoutubeCardWrapper(300);
+  card.__source = { sourceId: 'UCbroken', sourceName: 'Broken Channel' };
+  const adapter = makeCanonicalizingAdapter(
+    async () => { throw new Error('このテストではcanonicalizeは呼ばれない想定'); },
+    async () => { throw new Error('canonicalBaseUrlが見つかりませんでした'); },
+  );
+  const added = [];
+  const storage = makeAliasAwareStorage({
+    addBlockedSource: async (siteKey, sourceId, sourceName) => { added.push({ siteKey, sourceId, sourceName }); },
+  });
+  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+
+  const anchor = card.querySelector('#dismissible');
+  const button = anchor.querySelector('.cb-search-register-button');
+  await button.listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  assert.equal(added.length, 0, 'handle解決に失敗したのにUC側がブロックされている');
+  assert.ok(anchor.querySelector('.cb-search-register-error'), 'UCカードのhandle解決失敗時に可視エラーが出ていない');
+  assert.equal(warnings.length, 1);
+});
+
+test('【yt-contract-tests】ブロック済みUC形式カードの解除（placeholderの解除ボタン）はhandle解決の通信をしない', async () => {
+  const search = loadContentSearch();
+  const card = makeFakeYoutubeCardWrapper(300);
+  card.__source = { sourceId: 'UCLA_DiR1FfKNvjuUpBHmylQ', sourceName: 'NASA' };
+  let findHandleAliasCalls = 0;
+  const adapter = makeCanonicalizingAdapter(
+    async () => { throw new Error('このテストではcanonicalizeは呼ばれない想定'); },
+    async () => { findHandleAliasCalls += 1; return '@NASA'; },
+  );
+  const removed = [];
+  const storage = makeAliasAwareStorage({
+    getBlockedSources: async () => ({ UCLA_DiR1FfKNvjuUpBHmylQ: { name: 'NASA', addedAt: 0 } }),
+    getDisplayMode: async () => 'placeholder',
+    removeBlockedSource: async (siteKey, sourceId) => { removed.push({ siteKey, sourceId }); },
+  });
+  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+
+  // ブロック済みカードは登録ボタンが隠れているのでplaceholderの解除ボタンから操作する。
+  assert.equal(card.style.display, '', '前提: placeholderモードではwrapper自体は表示のまま');
+
+  const wrapperUnblock = card.children.find((c) => c.className === 'cb-blocked-placeholder');
+  assert.ok(wrapperUnblock, '前提: placeholderが出ているはず');
+  const unblockBtn = wrapperUnblock.children.find((c) => c.textContent === 'ブロック解除');
+  await unblockBtn.listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  assert.deepEqual(removed, [{ siteKey: 'youtube', sourceId: 'UCLA_DiR1FfKNvjuUpBHmylQ' }]);
+  assert.equal(findHandleAliasCalls, 0, '解除操作でhandle解決（通信）が起きている（不要な通信）');
 });
 
