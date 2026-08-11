@@ -101,6 +101,22 @@ adapter のコメント自身が「fetch() の静的 HTML にも seller 情報�
 3. 「発信元が解決できない商品」を正常な状態として表現する（例外をやめる）。
    ただしその場合ブロック機能は解決できた 2 割にしか効かない
 
+## 追記（2026-08-11・修正後の再検証で Amazon も PASS）
+
+上記の FAIL は codex の commit `3afdd94` で修正され、bell が実ブラウザで再検証して PASS を確認した
+（記録は `docs/evidence/patternb-amazon-browser-verify.md`、検証の commit は `30b36ac`）。
+
+修正の内容は「seller 不在を正常系にする」で、選択肢③を採った。上記で挙げた選択肢①②は、
+その後 bell が **CSR 後の実ブラウザ DOM にも seller 情報が無い**ことを実測したため前提から消えた
+（`B0FR8LPP2K` は `#sellerProfileTriggerId`・`a[href*="seller="]`・`#merchant-info` すべて不在で、
+商品ページの表示は `販売元: Amazon.co.jp`＝Amazon 直販でマーケットプレイス出品者が存在しない）。
+
+再検証の実測: 個別 warn が **47 件 → 0 件**、`itemSourceCache` の amazon エントリ **12 件**。
+解決は走っており、seller 不在のカードが `null` で素通しされている。構造変更の検出は
+「5件以上かつ全件不在なら集約警告」で担保されている。
+
+したがって v7c（パターンC の実ブラウザ検証）は **ヤフオク・Amazon ともに PASS** で閉じる。
+
 ## 未検証
 
 - 解除ボタンの動作（ヤフオクでは未実施。Yahoo News では動作確認済み）
