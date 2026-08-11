@@ -11,6 +11,9 @@
 const CB_NAME = (() => {
   const DEFAULT_MODE = 'placeholder';
   const PLACEHOLDER_CLASS = 'cb-blocked-placeholder';
+  const SOURCE_BUTTON_CLASS = 'cb-source-block-button';
+  const TOAST_CLASS = 'cb-toast';
+  const TOAST_DURATION_MS = 2000;
   const MASCOT_IMAGE_PATH = 'assets/mascot-blocked.png';
   const MASCOT_DISPLAY_SIZE = 120;
 
@@ -148,6 +151,7 @@ const CB_NAME = (() => {
 
     const processedCards = new Set();
     const cardInfo = new Map(); // card -> { sourceName, wrapper }
+    const buttonByCard = new Map();
     let blockedSources = {};
     let blockedKeywords = [];
     let displayMode = DEFAULT_MODE;
@@ -164,6 +168,84 @@ const CB_NAME = (() => {
       return keywordFilter.matchesAny(title, blockedKeywords);
     }
 
+    function showToast(message) {
+      const toast = doc.createElement('div');
+      toast.className = TOAST_CLASS;
+      toast.textContent = message;
+      Object.assign(toast.style, {
+        position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
+        background: COLOR_INK, color: COLOR_WHITE, padding: '8px 16px', borderRadius: '4px',
+        zIndex: '2147483647', fontSize: '14px',
+      });
+      doc.body.appendChild(toast);
+      setTimeout(() => toast.remove(), TOAST_DURATION_MS);
+    }
+
+    function ensureSourceButton(card, sourceName, wrapper) {
+      let button = buttonByCard.get(card);
+      if (button) return button;
+
+      button = doc.createElement('button');
+      button.type = 'button';
+      button.className = SOURCE_BUTTON_CLASS;
+      button.title = `${sourceName} のブロックを切り替える`;
+      button.setAttribute('aria-label', `${sourceName} のブロックを切り替える`);
+      Object.assign(button.style, {
+        position: 'absolute', top: '6px', right: '6px', zIndex: '2147483646',
+        cursor: 'pointer', border: `1px solid ${COLOR_ORANGE}`, background: COLOR_WHITE,
+        color: COLOR_ORANGE_DEEP, borderRadius: '4px', padding: '4px 8px', fontSize: '12px',
+        opacity: '0', pointerEvents: 'none', transition: 'opacity 120ms ease',
+      });
+      if (!wrapper.style.position) wrapper.style.position = 'relative';
+
+      const show = () => { button.style.opacity = '1'; button.style.pointerEvents = 'auto'; };
+      const hide = () => { button.style.opacity = '0'; button.style.pointerEvents = 'none'; };
+      wrapper.addEventListener('mouseenter', show);
+      wrapper.addEventListener('mouseleave', hide);
+      button.addEventListener('focus', show);
+      button.addEventListener('blur', hide);
+
+      button.addEventListener('click', async (event) => {
+        if (event) {
+          if (event.preventDefault) event.preventDefault();
+          if (event.stopPropagation) event.stopPropagation();
+        }
+        button.disabled = true;
+        try {
+          const current = await storage.getBlockedSources(siteKey);
+          if (current[sourceName]) {
+            await storage.removeBlockedSource(siteKey, sourceName);
+            showToast(`${sourceName} のブロックを解除しました`);
+          } else {
+            await storage.addBlockedSource(siteKey, sourceName, sourceName, true);
+            showToast(`${sourceName} をブロックしました`);
+          }
+          blockedSources = await storage.getBlockedSources(siteKey);
+          for (const knownCard of processedCards) applyCardVisibility(knownCard);
+        } catch (error) {
+          console.warn(`content-name: 発信元ブロック操作に失敗しました siteKey=${siteKey} sourceName=${sourceName}`, error);
+          showToast(`${sourceName} のブロック操作に失敗しました`);
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      wrapper.appendChild(button);
+      buttonByCard.set(card, button);
+      return button;
+    }
+
+    function applySourceButton(card, sourceName, wrapper, blocked) {
+      const existing = buttonByCard.get(card);
+      if (blocked) {
+        if (existing) existing.style.display = 'none';
+        return;
+      }
+      const button = ensureSourceButton(card, sourceName, wrapper);
+      button.style.display = '';
+      button.textContent = isSourceBlocked(sourceName) ? 'ブロック解除' : '🚫 発信元をブロック';
+    }
+
     function buildOptions(sourceName) {
       return {
         mode: displayMode,
@@ -178,6 +260,7 @@ const CB_NAME = (() => {
       const { sourceName, wrapper } = info;
       const blocked = isSourceBlocked(sourceName) || isCardKeywordBlocked(card);
       applyVisibility(wrapper, blocked, buildOptions(sourceName));
+      applySourceButton(card, sourceName, wrapper, blocked);
     }
 
     function processCard(card) {

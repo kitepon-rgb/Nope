@@ -95,14 +95,17 @@ test('Amazon: resolveSource — &amp; でなく ? でも sellerId を取得で�
   assert.equal(result.sourceName, 'テスト販売者');
 });
 
-test('Amazon: resolveSource — seller ID が無ければ throw', async () => {
+test('Amazon: resolveSource — seller ID が無ければ正常なseller不在としてnull', async () => {
   const html = '<html><body><p>商品が見つかりません</p></body></html>';
   const fetchMock = async () => ({ ok: true, text: async () => html });
   const adapter = loadAdapter(fetchMock);
-  await assert.rejects(
-    () => adapter.resolver.resolveSource('B0NOTFOUND'),
-    (err) => { assert.ok(err && err.message && err.message.includes('seller ID')); return true; },
-  );
+  assert.equal(await adapter.resolver.resolveSource('B0NOTFOUND'), null);
+});
+
+test('Amazon: seller不在の集約警告policyを持つ', () => {
+  const adapter = loadAdapter();
+  assert.equal(adapter.resolver.noSourceWarning.minAttempts, 5);
+  assert.match(adapter.resolver.noSourceWarning.message, /seller HTML構造/);
 });
 
 test('Amazon: resolveSource — HTTP エラーなら throw', async () => {

@@ -1,0 +1,9 @@
+{
+  "evidence_id": "patternb-amazon-owner-fixes-2026-08-11",
+  "repo_id": "self",
+  "path": "docs/evidence/patternb-amazon-owner-fixes.md",
+  "git_blob_oid": "fbb969034297303605966c8b096d98fd8cc0a361",
+  "content_digest": "cc65db732d16a9944b42624cc166fe09b651a203bc6f0124891a42f0ea82eccf",
+  "media_type": "text/markdown",
+  "anchor_digest": null
+}

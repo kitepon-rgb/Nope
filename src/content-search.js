@@ -171,8 +171,8 @@ const CB_SEARCH = (() => {
 
   // itemId→sourceId 解決を 2並列・間隔300msに抑えるキュー。
   // resolveStoreId は注入可能にして純粋にテストできるようにする。
-  /** @param {{resolveStoreId: Function, concurrency?: number, intervalMs?: number}} options */
-  function createResolveQueue({ resolveStoreId, concurrency = CONCURRENCY, intervalMs = INTERVAL_MS }) {
+  /** @param {{resolveStoreId: Function, concurrency?: number, intervalMs?: number, onIdle?: Function}} options */
+  function createResolveQueue({ resolveStoreId, concurrency = CONCURRENCY, intervalMs = INTERVAL_MS, onIdle }) {
     const pending = [];
     let active = 0;
     let timer = null;
@@ -192,6 +192,7 @@ const CB_SEARCH = (() => {
         .finally(() => {
           active -= 1;
           if (pending.length) scheduleNext();
+          else if (active === 0 && onIdle) onIdle();
         });
       if (pending.length && active < concurrency) scheduleNext();
     }
@@ -232,6 +233,21 @@ const CB_SEARCH = (() => {
     const directCardInfo = new Map();
     let blockedSources = {};
     let displayMode = DEFAULT_MODE;
+    let resolvedSourceCount = 0;
+    let noSourceCount = 0;
+    let noSourceWarningSent = false;
+
+    function warnIfAllSourcesMissing() {
+      const policy = resolver.noSourceWarning;
+      if (!policy || noSourceWarningSent || resolvedSourceCount > 0) return;
+      const minimum = Number.isInteger(policy.minAttempts) ? policy.minAttempts : 1;
+      if (noSourceCount < minimum) return;
+      noSourceWarningSent = true;
+      console.warn(
+        `${policy.message || 'content-search: source不在が全件で続いています。resolver構造変更の可能性があります'} `
+        + `siteKey=${siteKey} noSource=${noSourceCount} resolved=${resolvedSourceCount}`
+      );
+    }
 
     let queue = null;
     if (resolver.type === 'async_resolve') {
@@ -239,6 +255,9 @@ const CB_SEARCH = (() => {
       if (typeof resolver.resolveSource === 'function') {
         resolveSource = async (itemId) => {
           const source = await resolver.resolveSource(itemId);
+          // nullはadapterが明示した「このitemに発信元が存在しない」という正常系。
+          // undefinedやsourceId欠落は契約違反なので従来どおりthrowして個別warnへ送る。
+          if (source === null) return null;
           if (!source || !source.sourceId) {
             throw new Error(`content-search: resolverがsourceIdを返しませんでした siteKey=${siteKey} itemId=${itemId}`);
           }
@@ -256,7 +275,7 @@ const CB_SEARCH = (() => {
           return { sourceId, sourceName: '' };
         };
       }
-      queue = createResolveQueue({ resolveStoreId: resolveSource });
+      queue = createResolveQueue({ resolveStoreId: resolveSource, onIdle: warnIfAllSourcesMissing });
     }
 
     function isBlocked(sourceId) {
@@ -316,6 +335,11 @@ const CB_SEARCH = (() => {
             console.warn(`content-search: sourceId解決に失敗しました siteKey=${siteKey} itemId=${itemId}`, err);
             return;
           }
+          if (source === null) {
+            noSourceCount += 1;
+            return;
+          }
+          resolvedSourceCount += 1;
           const { sourceId, sourceName } = source;
           sourceIdByItemId.set(itemId, sourceId);
           applyVisibility(wrapper, isBlocked(sourceId), buildVisibilityOptions(sourceId, sourceName));

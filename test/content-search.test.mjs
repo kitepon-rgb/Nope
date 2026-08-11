@@ -63,13 +63,13 @@ function makeFakeLink(href, wrapper) {
   };
 }
 
-function loadContentSearch({ includeMtop = true } = {}) {
+function loadContentSearch({ includeMtop = true, consoleImpl = console } = {}) {
   const globals = {
     document: Object.assign({ querySelectorAll: () => [], body: {} }, makeFakeDocument()),
     MutationObserver: FakeMutationObserver,
     setTimeout: (fn) => { fn(); return 0; },
     clearTimeout: () => {},
-    console,
+    console: consoleImpl,
     chrome: { runtime: { getURL: (path) => `chrome-extension://test-id/${path}` } },
     CB_STORAGE: {
       getBlockedSources: async () => ({}),
@@ -522,4 +522,103 @@ test('displayModeの変更で既知カードへ即時再適用する（collapse�
   modeListener('placeholder');
   assert.equal(wrapper.style.display, '');
   assert.ok(wrapper.children.some((c) => c.className === 'cb-blocked-placeholder'));
+});
+
+function makeAsyncStorage(cachedWrites = []) {
+  return {
+    getBlockedSources: async () => ({}),
+    getCachedSource: async () => null,
+    setCachedSource: async (...args) => { cachedWrites.push(args); },
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'collapse',
+    onDisplayModeChanged: () => {},
+    removeBlockedSource: async () => {},
+  };
+}
+
+async function flushQueue() {
+  for (let i = 0; i < 12; i += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+test('async_resolveのnullは正常なsource不在として個別warnせず、全件なら集約warnを1回出す', async () => {
+  const warnings = [];
+  const search = loadContentSearch({
+    includeMtop: false,
+    consoleImpl: { ...console, warn: (...args) => warnings.push(args) },
+  });
+  const cards = Array.from({ length: 5 }, (_, index) => Object.assign(makeFakeWrapper(), { id: `item-${index}` }));
+  const adapter = {
+    siteKey: 'amazon',
+    cardSelector: '.card',
+    getWrapper: (card) => card,
+    resolver: {
+      type: 'async_resolve',
+      getItemId: (card) => card.id,
+      resolveSource: async () => null,
+      noSourceWarning: { minAttempts: 5, message: 'amazon aggregate warning' },
+    },
+  };
+
+  await search.init({ document: { querySelectorAll: () => cards, body: {} }, storage: makeAsyncStorage(), adapter }).start();
+  await flushQueue();
+
+  assert.equal(warnings.length, 1);
+  assert.match(String(warnings[0][0]), /amazon aggregate warning/);
+  assert.doesNotMatch(String(warnings[0][0]), /itemId=/);
+});
+
+test('async_resolveは1件でもsource解決に成功すればseller不在の集約warnを出さない', async () => {
+  const warnings = [];
+  const cachedWrites = [];
+  const search = loadContentSearch({
+    includeMtop: false,
+    consoleImpl: { ...console, warn: (...args) => warnings.push(args) },
+  });
+  const cards = Array.from({ length: 5 }, (_, index) => Object.assign(makeFakeWrapper(), { id: `item-${index}` }));
+  const adapter = {
+    siteKey: 'amazon',
+    cardSelector: '.card',
+    getWrapper: (card) => card,
+    resolver: {
+      type: 'async_resolve',
+      getItemId: (card) => card.id,
+      resolveSource: async (itemId) => itemId === 'item-4'
+        ? { sourceId: 'seller-1', sourceName: '販売者' }
+        : null,
+      noSourceWarning: { minAttempts: 5, message: '出てはいけない' },
+    },
+  };
+
+  await search.init({ document: { querySelectorAll: () => cards, body: {} }, storage: makeAsyncStorage(cachedWrites), adapter }).start();
+  await flushQueue();
+
+  assert.equal(warnings.length, 0);
+  assert.deepEqual(cachedWrites, [['amazon', 'item-4', 'seller-1']]);
+});
+
+test('async_resolveの本物の失敗はseller不在へ丸めず従来どおり個別warnする', async () => {
+  const warnings = [];
+  const search = loadContentSearch({
+    includeMtop: false,
+    consoleImpl: { ...console, warn: (...args) => warnings.push(args) },
+  });
+  const card = Object.assign(makeFakeWrapper(), { id: 'broken-item' });
+  const adapter = {
+    siteKey: 'amazon',
+    cardSelector: '.card',
+    getWrapper: (value) => value,
+    resolver: {
+      type: 'async_resolve',
+      getItemId: (value) => value.id,
+      resolveSource: async () => { throw new Error('HTTP構造エラー'); },
+      noSourceWarning: { minAttempts: 1, message: '出てはいけない' },
+    },
+  };
+
+  await search.init({ document: { querySelectorAll: () => [card], body: {} }, storage: makeAsyncStorage(), adapter }).start();
+  await flushQueue();
+
+  assert.equal(warnings.length, 1);
+  assert.match(String(warnings[0][0]), /sourceId解決に失敗/);
+  assert.match(warnings[0][1].message, /HTTP構造エラー/);
 });

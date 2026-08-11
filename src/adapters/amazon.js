@@ -37,9 +37,9 @@ const AMAZON_ADAPTER = {
 
     /**
      * 商品詳細ページを fetch して販売者 ID・名前を解決する。
-     * 失敗は throw（静かなフォールバック禁止）。
+     * seller不在（Amazon直販）はnull。fetch/HTTP失敗はthrow（静かなフォールバック禁止）。
      * @param {string} asin
-     * @returns {Promise<{ sourceId: string, sourceName: string }>}
+     * @returns {Promise<{ sourceId: string, sourceName: string } | null>}
      */
     async resolveSource(asin) {
       const url = `https://www.amazon.co.jp/dp/${asin}`;
@@ -58,7 +58,7 @@ const AMAZON_ADAPTER = {
       // &amp; は HTML エンティティとして埋め込まれているため ? や & ではなく &amp; でマッチ
       const idMatch = html.match(/(?:&amp;|[?&])seller=([A-Z0-9]+)/);
       if (!idMatch) {
-        throw new Error(`amazon: seller ID が見つかりません asin=${asin}`);
+        return null;
       }
       const sourceId = idMatch[1];
 
@@ -68,6 +68,13 @@ const AMAZON_ADAPTER = {
 
       return { sourceId, sourceName };
       // 実測例: { sourceId: 'A3EMK34PT3V85P', sourceName: 'HK-JIMI' }
+    },
+
+    // seller不在を個別warnにしない代わりに、1回の検索batchで5件以上すべてnullなら
+    // SSR seller構造が変わった可能性を集約warnする。1件でも解決成功すれば構造は生きている。
+    noSourceWarning: {
+      minAttempts: 5,
+      message: 'amazon: seller解決が全件0件です。seller HTML構造が変わった可能性があります',
     },
   },
 };
