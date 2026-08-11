@@ -345,12 +345,47 @@ const CB_SEARCH = (() => {
     floatingHoverReason = null;
   }
 
-  function positionFloatingButtonOverCard(card) {
-    if (!floatingButton || typeof card.getBoundingClientRect !== 'function') return;
-    const rect = card.getBoundingClientRect();
+  /**
+   * カード配下の「茶色いhover外周ハイライト」（`yt-touch-feedback-shape`、オーナー実測: カード各辺
+   * より12px外側）のrectを探す。候補が複数ある場合（内部のメニューボタン用の小さいshape等）は、
+   * card rect全体を包含するものだけを採用する。無ければnullを返しcard rectへfallbackさせる
+   * （オーナー実測 2026-08-11: card L264 R722.33 T283.80 B619.61、
+   * outer shape L252 R734.33 T271.80 B631.61）。
+   * @param {any} card @returns {{left:number, top:number, right:number, bottom:number}|null}
+   */
+  function findOuterHighlightRect(card) {
+    if (typeof card.getBoundingClientRect !== 'function' || typeof card.querySelectorAll !== 'function') return null;
+    const cardRect = card.getBoundingClientRect();
+    const shapes = card.querySelectorAll('yt-touch-feedback-shape');
+    for (const shape of shapes) {
+      if (typeof shape.getBoundingClientRect !== 'function') continue;
+      const shapeRect = shape.getBoundingClientRect();
+      // card rect全体を包含する候補だけを採用する（内部のmenuボタン等の小さいshapeを除外）。
+      if (shapeRect.left <= cardRect.left && shapeRect.top <= cardRect.top
+          && shapeRect.right >= cardRect.right && shapeRect.bottom >= cardRect.bottom) {
+        return shapeRect;
+      }
+    }
+    return null;
+  }
+
+  /** position:fixedのCSS right/bottomはlayout viewport（documentElement.clientWidth/Height、
+   * スクロールバー幅を含まない）基準で解決される。window.innerWidth/Heightはvisual viewport
+   * （スクロールバー込み）なので、これを使うとbuttonがスクロールバー幅ぶん内側へ寄る誤差が出る
+   * （オーナー実機実測2026-08-11・bell裁定[147]: innerWidth=1710 vs clientWidth=1695、差15px）。
+   * documentElementが無い/0の場合だけwindow.innerWidth/Heightへfallbackする。 */
+  function getLayoutViewportSize(doc) {
+    const docEl = doc && doc.documentElement;
     const win = typeof window !== 'undefined' ? window : null;
-    const viewportWidth = (win && win.innerWidth) || 0;
-    const viewportHeight = (win && win.innerHeight) || 0;
+    const width = (docEl && docEl.clientWidth) || (win && win.innerWidth) || 0;
+    const height = (docEl && docEl.clientHeight) || (win && win.innerHeight) || 0;
+    return { width, height };
+  }
+
+  function positionFloatingButtonOverCard(doc, card) {
+    if (!floatingButton || typeof card.getBoundingClientRect !== 'function') return;
+    const rect = findOuterHighlightRect(card) || card.getBoundingClientRect();
+    const { width: viewportWidth, height: viewportHeight } = getLayoutViewportSize(doc);
     floatingButton.style.top = '';
     floatingButton.style.left = '';
     floatingButton.style.right = `${Math.max(0, viewportWidth - rect.right + FLOATING_INSET_PX)}px`;
@@ -430,7 +465,7 @@ const CB_SEARCH = (() => {
     floatingHoverCard = card;
     floatingHoverCtx = ctx;
     floatingHoverReason = reason || 'pointer';
-    positionFloatingButtonOverCard(card);
+    positionFloatingButtonOverCard(doc, card);
     button.style.display = '';
     if (ctx.resolutionFailed) {
       const label = '識別子解決に失敗しました';
@@ -935,7 +970,7 @@ const CB_SEARCH = (() => {
             hideFloatingButtonNow();
             return;
           }
-          positionFloatingButtonOverCard(floatingHoverCard);
+          positionFloatingButtonOverCard(doc, floatingHoverCard);
         };
         window.addEventListener('scroll', reposition, true);
         window.addEventListener('resize', reposition);

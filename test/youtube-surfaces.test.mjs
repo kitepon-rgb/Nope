@@ -73,9 +73,18 @@ function makeFakeYoutubeCardWrapper(measuredHeight, rect) {
     const cls = match ? match[1] : selector;
     return wrapper.children.find((c) => c.className === cls) || null;
   };
+  // bell裁定[142]: 茶色いhover外周ハイライト(yt-touch-feedback-shape)候補の探索先。
+  // 既定は候補なし（card rectへfallbackする経路の検証用）。setOuterHighlightShapesで追加できる。
+  wrapper.querySelectorAll = (selector) => (selector === 'yt-touch-feedback-shape' ? (wrapper.__shapes || []) : []);
   const effectiveRect = rect || { top: 0, left: 0, right: 400, bottom: measuredHeight, width: 400, height: measuredHeight };
   wrapper.getBoundingClientRect = () => ({ ...effectiveRect, height: measuredHeight });
   return wrapper;
+}
+
+// bell裁定[142]: カードへ yt-touch-feedback-shape 候補（複数可）を追加する。各shapeは
+// {left,top,right,bottom} のrectを持つだけの最小fakeでよい（実装はgetBoundingClientRectしか見ない）。
+function setOuterHighlightShapes(card, rects) {
+  card.__shapes = rects.map((r) => ({ getBoundingClientRect: () => r }));
 }
 
 // bellの実Chrome実測[86]（オーナーのログイン済みホーム）: ホームの実カードは ytd-rich-item-renderer
@@ -119,11 +128,16 @@ function makeFakeWindow({ innerWidth = 1280, innerHeight = 800 } = {}) {
 
 // bell裁定[127]: YouTube自身が生成するpreview overlay等がcard DOM外にあっても、pointer位置の
 // 幾何判定でhoverを継続させるため、document自体にpointermoveのaddEventListener/dispatchを持たせる。
-function makeFakeDoc({ getCards = () => [], body = makeFakeBody() } = {}) {
+// bell裁定[147]: position:fixedのCSS right/bottomはlayout viewport(documentElement.clientWidth/
+// Height、スクロールバー幅を含まない)基準。既定はclientWidth/Height=0にして、実装側の
+// `docEl.clientWidth || window.innerWidth`fallbackにより既存テストがwindow.innerWidth基準の
+// ままになるようにする（layout viewport基準を明示検証したいテストだけdocumentElementを渡す）。
+function makeFakeDoc({ getCards = () => [], body = makeFakeBody(), documentElement = { clientWidth: 0, clientHeight: 0 } } = {}) {
   const listeners = {};
   return {
     querySelectorAll: getCards,
     body,
+    documentElement,
     createElement: (tag) => makeFakeElement(tag),
     addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
     removeEventListener(type, fn) {
@@ -357,6 +371,123 @@ test('【yt-contract-tests】YouTube管理DOMの再描画（カード要素の�
     'pruneされたはずの旧cardのgetBoundingClientRectがscan後のpointermove判定でも呼ばれている（floatingRegisteredCardsに強参照が残っている）');
   assert.equal(oldCardIsConnectedAccessCount, oldCardIsConnectedAccessCountAfterScan,
     'pruneされたはずの旧cardがscan後のpointermove判定のfor-of走査で依然として列挙されている（Set.deleteが効いていない）');
+});
+
+// オーナー実測2026-08-11（bell裁定[142]）: card L264 R722.33 T283.80 B619.61、
+// outer highlight shape(yt-touch-feedback-shape) L252 R734.33 T271.80 B631.61（各辺+12px）。
+// 茶色いhover外周ハイライトの右下へボタンを配置するため、card配下のyt-touch-feedback-shape候補
+// のうちcard rect全体を包含するものを優先して位置基準にする。内部の小さいmenuボタン用shape
+// （card rectを包含しない）は候補から除外する。
+test('【yt-contract-tests】floating buttonの位置はlayout viewport基準・card rectを包含するouter highlight shape基準になる（bell裁定[142][147]）', async () => {
+  // bell裁定[147]（実機再測定）: window.innerWidth(visual viewport)とdocumentElement.clientWidth
+  // (layout viewport)にはスクロールバー幅ぶんの差が実在する（実測15px）。position:fixedの
+  // CSS right/bottomはlayout viewport基準で解決されるため、期待値もclientWidth/Heightから計算する。
+  const win = makeFakeWindow({ innerWidth: 1710, innerHeight: 1000 });
+  const search = loadContentSearch({ win });
+  const cardRect = { top: 283.80, left: 264, right: 722.33, bottom: 619.61, width: 458.33, height: 335.81 };
+  const card = makeFakeYoutubeCardWrapper(cardRect.height, cardRect);
+  const menuShapeRect = { top: 290, left: 700, right: 720, bottom: 310 }; // card rectを包含しない小さい候補
+  const outerShapeRect = { top: 271.80, left: 252, right: 734.33, bottom: 631.61 }; // card rectを包含する外周
+  setOuterHighlightShapes(card, [menuShapeRect, outerShapeRect]);
+  const storage = {
+    getBlockedSources: async () => ({}),
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'placeholder',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async () => {},
+    removeBlockedSource: async () => {},
+  };
+  const body = makeFakeBody();
+  const layoutViewport = { clientWidth: win.innerWidth - 15, clientHeight: win.innerHeight - 15 };
+  const doc = makeFakeDoc({ getCards: () => [card], body, documentElement: layoutViewport });
+
+  const controller = search.init({ document: doc, storage, adapter: YOUTUBE_LIKE_ADAPTER });
+  await controller.start();
+
+  movePointerOverCard(doc, card);
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
+  assert.notEqual(button.style.display, 'none');
+
+  const expectedRight = layoutViewport.clientWidth - outerShapeRect.right + 8; // FLOATING_INSET_PX
+  const expectedBottom = layoutViewport.clientHeight - outerShapeRect.bottom + 8;
+  assert.equal(button.style.right, `${expectedRight}px`, 'outer shape・layout viewport基準のright座標になっていない');
+  assert.equal(button.style.bottom, `${expectedBottom}px`, 'outer shape・layout viewport基準のbottom座標になっていない');
+
+  // bell裁定[147]の契約固定: button右端(layout viewport座標) = layoutViewport.clientWidth - style.right
+  // が outerRect.right - FLOATING_INSET_PX(8) と一致する（outer rightから8px内側）。
+  const buttonRightEdge = layoutViewport.clientWidth - parseFloat(button.style.right);
+  assert.equal(buttonRightEdge, outerShapeRect.right - 8,
+    'button右端がouter shapeの右端から8px内側になっていない');
+
+  // window.innerWidth(visual viewport)基準のまま(誤り)になっていないことも確認。
+  const visualViewportBasedRight = win.innerWidth - outerShapeRect.right + 8;
+  assert.notEqual(button.style.right, `${visualViewportBasedRight}px`,
+    'visual viewport(window.innerWidth)基準のまま（layout viewportへ切り替わっていない）');
+
+  const cardBasedRight = layoutViewport.clientWidth - cardRect.right + 8;
+  assert.notEqual(button.style.right, `${cardBasedRight}px`, 'card rect基準のまま(outer shapeが反映されていない)');
+});
+
+test('【yt-contract-tests】outer highlight shapeの候補が無いカードはlayout viewport・card rect基準のままfloating buttonを配置する（bell裁定[142][147]）', async () => {
+  const win = makeFakeWindow({ innerWidth: 1710, innerHeight: 1000 });
+  const search = loadContentSearch({ win });
+  const cardRect = { top: 100, left: 50, right: 450, bottom: 400, width: 400, height: 300 };
+  const card = makeFakeYoutubeCardWrapper(300, cardRect);
+  // setOuterHighlightShapesを呼ばない = 候補なし（既定のquerySelectorAllは空配列を返す）。
+  // 検索面/旧DOMでyt-touch-feedback-shapeが無いケースの回帰確認。
+  const storage = {
+    getBlockedSources: async () => ({}),
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'placeholder',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async () => {},
+    removeBlockedSource: async () => {},
+  };
+  const body = makeFakeBody();
+  const layoutViewport = { clientWidth: win.innerWidth - 15, clientHeight: win.innerHeight - 15 };
+  const doc = makeFakeDoc({ getCards: () => [card], body, documentElement: layoutViewport });
+
+  const controller = search.init({ document: doc, storage, adapter: YOUTUBE_LIKE_ADAPTER });
+  await controller.start();
+
+  movePointerOverCard(doc, card);
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
+
+  const expectedRight = layoutViewport.clientWidth - cardRect.right + 8;
+  const expectedBottom = layoutViewport.clientHeight - cardRect.bottom + 8;
+  assert.equal(button.style.right, `${expectedRight}px`, 'shape無し時にlayout viewport・card rect基準になっていない');
+  assert.equal(button.style.bottom, `${expectedBottom}px`, 'shape無し時にlayout viewport・card rect基準になっていない');
+});
+
+// documentElementが利用不能（clientWidth/Height=0、既定のmakeFakeDoc）な環境では、
+// window.innerWidth/Heightへfallbackする（既存fallback契約の回帰確認、bell裁定[147]）。
+test('【yt-contract-tests】documentElement.clientWidth/Heightが取れない環境ではwindow.innerWidth/Heightへfallbackする（bell裁定[147]）', async () => {
+  const win = makeFakeWindow({ innerWidth: 1280, innerHeight: 800 });
+  const search = loadContentSearch({ win });
+  const cardRect = { top: 100, left: 50, right: 450, bottom: 400, width: 400, height: 300 };
+  const card = makeFakeYoutubeCardWrapper(300, cardRect);
+  const storage = {
+    getBlockedSources: async () => ({}),
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'placeholder',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async () => {},
+    removeBlockedSource: async () => {},
+  };
+  const body = makeFakeBody();
+  // documentElementを明示せず既定(clientWidth/clientHeight=0)のままにする。
+  const doc = makeFakeDoc({ getCards: () => [card], body });
+
+  const controller = search.init({ document: doc, storage, adapter: YOUTUBE_LIKE_ADAPTER });
+  await controller.start();
+
+  movePointerOverCard(doc, card);
+  const button = body.children.find((c) => c.className === 'cb-search-register-button');
+
+  const expectedRight = win.innerWidth - cardRect.right + 8;
+  const expectedBottom = win.innerHeight - cardRect.bottom + 8;
+  assert.equal(button.style.right, `${expectedRight}px`, 'documentElement不在時にwindow.innerWidthへfallbackしていない');
+  assert.equal(button.style.bottom, `${expectedBottom}px`, 'documentElement不在時にwindow.innerHeightへfallbackしていない');
 });
 
 test('【yt-contract-tests】scroll/resizeでfloating buttonの位置が再計算される（bell裁定[107]）', async () => {
