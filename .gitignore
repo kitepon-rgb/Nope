@@ -7,6 +7,9 @@ node_modules/
 .team/
 .mcp.json
 
+# room をローカルモードで起動した時の状態ファイル。本番 room は LAN インスタンス側
+peertable-data/
+
 # 配布ZIPの出力先(r5-package)
 dist/
 
