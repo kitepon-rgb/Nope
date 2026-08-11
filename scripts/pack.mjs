@@ -1,22 +1,27 @@
-// 配布用 ZIP を生成するスクリプト。
+// 配布用 ZIP と、README記載の「開発者モードでの読み込み（Load unpacked）」用の
+// 展開済みディレクトリ（stable unpacked面）を生成するスクリプト。
 // 同梱するのは manifest.json / src/ / popup/ / icons/ / assets/mascot-blocked.png のみ。
 // assets/mascot-source.png(2048x2048、開発用の原本)は実行時に参照されないため、
 // 配布物に含めない。ディレクトリ丸ごとではなく個別ファイルとして指定することで除外している。
-// ZIP のルート直下に manifest.json が来るよう、一時ステージングディレクトリへ
-// コピーしてから Compress-Archive (Windows PowerShell 標準搭載、追加依存ゼロ) で固める。
 //
-// 実行: node scripts/pack.mjs [出力先パス]
+// 【stable unpacked面は必ず削除差分込みで再生成する】2026-08-11実測: 増分コピーだと
+// リポジトリ側で撤去されたファイル（例: youtube_watch.js）がunpacked面に残留し続け、
+// ユーザーがLoad unpackedで読み込んでいる拡張が「撤去したはずの旧コードのまま」になる
+// 配布欠陥を起こした（room[95]）。既存のunpacked面を丸ごと削除してから作り直すことで、
+// 撤去されたファイルが残らないことを保証する。ZIPはこのunpacked面から生成するため、
+// 両者は常に同一内容になる（ZIPだけを別経路で作ると同種の乖離が再発するので避ける）。
+//
+// 実行: node scripts/pack.mjs [出力先ZIPパス]
 //   省略時は dist/chromeblocker-v<manifestのversion>.zip
+//   unpacked面は同じディレクトリの dist/chromeblocker-v<version>-unpacked/ に生成する
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -51,51 +56,55 @@ function main() {
   const outPath = outArg
     ? resolve(outArg)
     : join(repoRoot, "dist", `chromeblocker-v${version}.zip`);
+  const unpackedPath = join(dirname(outPath), `chromeblocker-v${version}-unpacked`);
 
   mkdirSync(dirname(outPath), { recursive: true });
   if (existsSync(outPath)) {
     rmSync(outPath);
   }
 
-  const stagingDir = mkdtempSync(join(tmpdir(), "chromeblocker-pack-"));
-  try {
-    for (const entry of INCLUDE_ENTRIES) {
-      const dest = join(stagingDir, entry);
-      // entry が "assets/mascot-blocked.png" のようなネストしたファイルの場合、
-      // 親ディレクトリ(stagingDir/assets/)を先に作っておく必要がある。
-      mkdirSync(dirname(dest), { recursive: true });
-      cpSync(join(repoRoot, entry), dest, {
-        recursive: true,
-      });
-    }
+  // stable unpacked面を丸ごと削除してから作り直す（削除差分込みの再生成。上記コメント参照）。
+  if (existsSync(unpackedPath)) {
+    rmSync(unpackedPath, { recursive: true, force: true });
+  }
+  mkdirSync(unpackedPath, { recursive: true });
 
-    // ステージング直下の全ファイルを ZIP にまとめる。エントリ名は必ずフォワードスラッシュで
-    // 統一する（PowerShell の Compress-Archive はバックスラッシュで保存するため WSL 上での
-    // 展開時に平坦ファイル名になる問題がある。Python zipfile は常にフォワードスラッシュを使う）。
-    execFileSync(
-      "python3",
-      [
-        "-c",
-        [
-          "import zipfile, os, sys",
-          "staging, outpath = sys.argv[1], sys.argv[2]",
-          "with zipfile.ZipFile(outpath, 'w', zipfile.ZIP_DEFLATED) as zf:",
-          "    for root, dirs, files in os.walk(staging):",
-          "        for f in files:",
-          "            fp = os.path.join(root, f)",
-          "            arcname = os.path.relpath(fp, staging).replace(os.sep, '/')",
-          "            zf.write(fp, arcname)",
-        ].join("\n"),
-        stagingDir,
-        outPath,
-      ],
-      { stdio: "inherit" },
-    );
-  } finally {
-    rmSync(stagingDir, { recursive: true, force: true });
+  for (const entry of INCLUDE_ENTRIES) {
+    const dest = join(unpackedPath, entry);
+    // entry が "assets/mascot-blocked.png" のようなネストしたファイルの場合、
+    // 親ディレクトリ(unpackedPath/assets/)を先に作っておく必要がある。
+    mkdirSync(dirname(dest), { recursive: true });
+    cpSync(join(repoRoot, entry), dest, {
+      recursive: true,
+    });
   }
 
+  // ZIPはunpacked面から生成する（同じソースなのでZIPとunpackedの内容が必ず一致する）。
+  // エントリ名は必ずフォワードスラッシュで統一する（PowerShell の Compress-Archive は
+  // バックスラッシュで保存するため WSL 上での展開時に平坦ファイル名になる問題がある。
+  // Python zipfile は常にフォワードスラッシュを使う）。
+  execFileSync(
+    "python3",
+    [
+      "-c",
+      [
+        "import zipfile, os, sys",
+        "staging, outpath = sys.argv[1], sys.argv[2]",
+        "with zipfile.ZipFile(outpath, 'w', zipfile.ZIP_DEFLATED) as zf:",
+        "    for root, dirs, files in os.walk(staging):",
+        "        for f in files:",
+        "            fp = os.path.join(root, f)",
+        "            arcname = os.path.relpath(fp, staging).replace(os.sep, '/')",
+        "            zf.write(fp, arcname)",
+      ].join("\n"),
+      unpackedPath,
+      outPath,
+    ],
+    { stdio: "inherit" },
+  );
+
   console.log(`wrote ${outPath}`);
+  console.log(`wrote ${unpackedPath}`);
 }
 
 main();
