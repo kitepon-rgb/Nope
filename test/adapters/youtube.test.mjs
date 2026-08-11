@@ -123,9 +123,12 @@ test('YouTube: matchesに www.youtube.com を含む', () => {
   assert.ok(adapter.matches.some((m) => m.includes('youtube.com')));
 });
 
-test('YouTube: cardSelectorがytd-video-renderer', () => {
+// room裁定2026-08-11・bell実測[86]: ホームの実カードはytd-video-rendererではなく
+// ytd-rich-item-renderer（オーナーのログイン済みホームでytd-video-renderer=0件と判明・差し戻し）。
+// 検索結果とホームを1つのadapterで拾うため両方を含む。
+test('YouTube: cardSelectorは検索結果(ytd-video-renderer)とホーム(ytd-rich-item-renderer)の両方を含む', () => {
   const adapter = loadAdapter();
-  assert.equal(adapter.cardSelector, 'ytd-video-renderer');
+  assert.equal(adapter.cardSelector, 'ytd-video-renderer, ytd-rich-item-renderer');
 });
 
 test('YouTube: getWrapperはcardをそのまま返す', () => {
@@ -207,4 +210,15 @@ test('YouTube: findHandleAliasはHTTPエラー応答時にthrowする', async ()
 test('YouTube: findHandleAliasはcanonicalBaseUrlが無い応答ではthrowする（handle不在と推測しない・bell裁定[58]）', async () => {
   const adapter = loadAdapter({ fetch: async () => ({ ok: true, text: async () => '<html>no canonicalBaseUrl here</html>' }) });
   await assert.rejects(() => adapter.resolver.findHandleAlias('UC1'), /canonicalBaseUrlが見つかりません/);
+});
+
+// room裁定2026-08-11・bell実測[86]（オーナー実Chromeでの差し戻し）: ホームには#dismissibleが無い。
+test('YouTube: register.anchorは#dismissibleを優先し、無ければ#contentへフォールバックする', () => {
+  const adapter = loadAdapter();
+  const dismissibleCard = { querySelector: (sel) => (sel === '#dismissible' ? { tag: 'dismissible-el' } : null) };
+  const contentOnlyCard = { querySelector: (sel) => (sel === '#content' ? { tag: 'content-el' } : null) };
+  const neitherCard = { querySelector: () => null };
+  assert.equal(adapter.resolver.register.anchor(dismissibleCard).tag, 'dismissible-el');
+  assert.equal(adapter.resolver.register.anchor(contentOnlyCard).tag, 'content-el');
+  assert.equal(adapter.resolver.register.anchor(neitherCard), null);
 });

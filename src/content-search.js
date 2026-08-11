@@ -279,17 +279,19 @@ const CB_SEARCH = (() => {
    * 登録ボタンの表示/非表示を切り替える。ブロック中は隠す（未ブロックカードだけに出す）。
    * 識別子解決に失敗したカードは、ボタンの代わりに常時可視のエラーバッジを出す。
    * @param {{doc: any, buttonByCard: Map<any, any>, errorBadgeByCard: Map<any, any>, card: any,
-   *   wrapper: any, anchorSelector?: string, sourceId: string, sourceName: string, siteKey: string,
-   *   storage: any, blocked: boolean, resolutionFailed?: boolean,
+   *   wrapper: any, resolveAnchor?: (card: any) => any, sourceId: string, sourceName: string,
+   *   siteKey: string, storage: any, blocked: boolean, resolutionFailed?: boolean,
    *   resolveBeforeToggle?: Function, onResolutionFailed?: Function, onToggled: Function}} deps
    */
   function applyRegisterButton(deps) {
     const {
-      doc, buttonByCard, errorBadgeByCard, card, wrapper, anchorSelector,
+      doc, buttonByCard, errorBadgeByCard, card, wrapper, resolveAnchor,
       sourceId, sourceName, siteKey, storage, blocked, resolutionFailed,
       resolveBeforeToggle, onResolutionFailed, onToggled,
     } = deps;
-    const anchor = (anchorSelector && wrapper.querySelector && wrapper.querySelector(anchorSelector)) || wrapper;
+    // アダプタがカード種別に応じたアンカーを自分で判定する（例: YouTubeは検索#dismissible／
+    // ホーム#content を同じ関数内で優先順に試す）。指定が無い/見つからなければcard自体を使う。
+    const anchor = (resolveAnchor && resolveAnchor(wrapper)) || wrapper;
 
     if (resolutionFailed) {
       const existingButton = buttonByCard.get(card);
@@ -519,7 +521,7 @@ const CB_SEARCH = (() => {
         if (resolver.register) {
           applyRegisterButton({
             doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper: info.wrapper,
-            anchorSelector: resolver.register.anchorSelector,
+            resolveAnchor: resolver.register.anchor,
             sourceId: info.rawSourceId, sourceName: info.sourceName,
             siteKey, storage, blocked: false, resolutionFailed: true, onToggled: async () => {},
           });
@@ -539,7 +541,7 @@ const CB_SEARCH = (() => {
       if (resolver.register) {
         applyRegisterButton({
           doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper: info.wrapper,
-          anchorSelector: resolver.register.anchorSelector,
+          resolveAnchor: resolver.register.anchor,
           sourceId: displaySourceId !== null ? displaySourceId : info.rawSourceId,
           sourceName: info.sourceName,
           siteKey, storage, blocked,

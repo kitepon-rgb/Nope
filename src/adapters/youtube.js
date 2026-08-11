@@ -23,14 +23,27 @@
 
 'use strict';
 
+// 【ホーム対応（room裁定 2026-08-11・bellの実Chrome実測[86]、オーナーのログイン済みホームで確認）】
+//   検索結果と違いホームのカードは `ytd-rich-item-renderer`（`ytd-video-renderer` ではない。
+//   実測: ytd-video-renderer=0件、ytd-rich-item-renderer=37件、ホーム実装の初版はここを取り違えて
+//   登録ボタンが1件も出ない欠陥だった）。構造:
+//     ytd-rich-item-renderer > div#content > yt-lockup-view-model > div.ytLockupViewModelHost
+//       > a[href="/watch..."], a[href="/@handle"], ...
+//   `#dismissible` は存在せず、登録ボタンのアンカーは `#content`（ytd-rich-item-renderer の直下）。
+//   `yt-lockup-view-model` を cardSelector に直接使ってはいけない——広告カード
+//   （`ytd-rich-item-renderer > #content > ytd-ad-slot-renderer > ...`）の内部にも深く入れ子で
+//   存在するため、rich-item単位より多くヒットし広告・内部要素を誤って拾う（実測: lockup=45件 >
+//   rich-item=37件）。広告カードは getSource が対象リンクを持たずnullを返すため、既存の
+//   「source無しはスキップ」処理で自然に除外される（広告固有の判定コードは不要）。
 const YOUTUBE_ADAPTER = {
   siteKey: 'youtube',
   matches: ['*://www.youtube.com/*'],
 
-  // 検索結果のカード要素。Shadow DOM なし（実測確認）。
-  cardSelector: 'ytd-video-renderer',
+  // 検索結果（ytd-video-renderer）とホーム（ytd-rich-item-renderer）の両方を1つのadapterで拾う。
+  // Shadow DOM なし（実測確認）。
+  cardSelector: 'ytd-video-renderer, ytd-rich-item-renderer',
 
-  // ytd-video-renderer 自体が block 要素で、display:none で空間が詰まる（実測確認）。
+  // どちらの面でもカード自体が block 要素で、display:none で空間が詰まる（実測確認）。
   getWrapper: (card) => card,
 
   resolver: {
@@ -132,10 +145,15 @@ const YOUTUBE_ADAPTER = {
       // 実測例（2026-08-11 curl）: 'UCLA_DiR1FfKNvjuUpBHmylQ' → '@NASA'
     },
 
-    // docs/design-youtube-surfaces.md §3: hover/focusで現れる登録トグルボタンを
-    // #dismissible（position:relative、kotone実測 docs/survey/youtube-home-search.md）へ挿入する。
-    // ホーム・検索結果どちらのカードにも同じ構造で使う想定（ホームは実DOM未確認、§1参照）。
-    register: { anchorSelector: '#dismissible' },
+    // docs/design-youtube-surfaces.md §3: hover/focusで現れる登録トグルボタンを挿入する。
+    // 検索結果は #dismissible（kotone実測）、ホームは #content（bell実測[86]、#dismissible無し）。
+    // カード種別で分岐せず「#dismissibleがあれば使う、無ければ#content、どちらも無ければcard自体」の
+    // 優先順で決める（cardSelectorが複数面を1つのadapterで拾うため、呼び出し側で面を判定しない）。
+    register: {
+      anchor(card) {
+        return (card.querySelector && (card.querySelector('#dismissible') || card.querySelector('#content'))) || null;
+      },
+    },
   },
 };
 

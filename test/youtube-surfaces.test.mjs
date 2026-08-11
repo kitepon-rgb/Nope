@@ -61,6 +61,26 @@ function makeFakeYoutubeCardWrapper(measuredHeight) {
   return wrapper;
 }
 
+// bellの実Chrome実測[86]（オーナーのログイン済みホーム）: ホームの実カードは ytd-rich-item-renderer
+// （ytd-video-renderer ではない）。#dismissible は存在せず、#content がアンカー候補。
+// ytd-rich-item-renderer > div#content > yt-lockup-view-model > ... a[href="/@handle"] という構造。
+function makeFakeHomeCardWrapper(measuredHeight) {
+  const wrapper = makeFakeElement('ytd-rich-item-renderer');
+  const content = makeFakeElement('div');
+  content.className = 'content';
+  content.getAttribute = (name) => (name === 'id' ? 'content' : null);
+  wrapper.appendChild(content);
+  wrapper.querySelector = (selector) => {
+    if (selector === '#dismissible') return null; // ホームには存在しない（実測[86]）
+    if (selector === '#content') return content;
+    const match = /\.([\w-]+)/.exec(selector);
+    const cls = match ? match[1] : selector;
+    return wrapper.children.find((c) => c.className === cls) || null;
+  };
+  wrapper.getBoundingClientRect = () => ({ height: measuredHeight });
+  return wrapper;
+}
+
 function loadContentSearch({ consoleImpl = console } = {}) {
   const globals = {
     document: { querySelectorAll: () => [], body: {}, createElement: (tag) => makeFakeElement(tag) },
@@ -83,7 +103,7 @@ function loadContentSearch({ consoleImpl = console } = {}) {
 }
 
 // docs/design-youtube-surfaces.md §3-2 で確定した契約: dom_id resolver への
-// register.anchorSelector オプトインで、未ブロックカードへトグルボタンを注入する。
+// register.anchor オプトインで、未ブロックカードへトグルボタンを注入する。
 const YOUTUBE_LIKE_ADAPTER = {
   siteKey: 'youtube',
   cardSelector: 'ytd-video-renderer',
@@ -91,7 +111,7 @@ const YOUTUBE_LIKE_ADAPTER = {
   resolver: {
     type: 'dom_id',
     getSource: (card) => ({ sourceId: '@MagicClub686', sourceName: 'Magic Club' }),
-    register: { anchorSelector: '#dismissible' },
+    register: { anchor: (card) => card.querySelector('#dismissible') },
   },
 };
 
@@ -171,12 +191,15 @@ test('【yt-contract-tests/red】youtube_watch.js アダプタが撤去されて
 function makeCanonicalizingAdapter(canonicalizeImpl, findHandleAliasImpl) {
   return {
     siteKey: 'youtube',
-    cardSelector: 'ytd-video-renderer',
+    // 検索結果(ytd-video-renderer)とホーム(ytd-rich-item-renderer)の両方を1つのadapterで拾う
+    // （本番のsrc/adapters/youtube.jsと同じcardSelector。bell実測[86]）。
+    cardSelector: 'ytd-video-renderer, ytd-rich-item-renderer',
     getWrapper: (card) => card,
     resolver: {
       type: 'dom_id',
       getSource: (card) => card.__source,
-      register: { anchorSelector: '#dismissible' },
+      // 本番と同じ優先順（#dismissible→#content）。ホームには#dismissibleが無い（実測[86]）。
+      register: { anchor: (card) => card.querySelector('#dismissible') || card.querySelector('#content') },
       canonicalize: canonicalizeImpl,
       findHandleAlias: findHandleAliasImpl || (async () => { throw new Error('findHandleAlias未実装（このテストでは呼ばれない想定）'); }),
     },
@@ -401,5 +424,67 @@ test('【yt-contract-tests】ブロック済みUC形式カードの解除（plac
 
   assert.deepEqual(removed, [{ siteKey: 'youtube', sourceId: 'UCLA_DiR1FfKNvjuUpBHmylQ' }]);
   assert.equal(findHandleAliasCalls, 0, '解除操作でhandle解決（通信）が起きている（不要な通信）');
+});
+
+// bellの実Chrome実測[86]（オーナーのログイン済みホームでの差し戻し）: ホームのカードは
+// ytd-rich-item-renderer で #dismissible が無く #content がアンカー候補。yt-lockup-view-model を
+// cardSelectorに直接使うと広告カード内部の入れ子まで拾ってしまう。広告カードはgetSourceがnullを
+// 返すため既存の「source無しはスキップ」処理で自然に除外される（広告固有の判定コードは無い）。
+test('【yt-contract-tests】ホーム形式カード(ytd-rich-item-renderer)は#dismissibleが無くても#contentへ登録ボタンを出す', async () => {
+  const search = loadContentSearch();
+  const homeCard = makeFakeHomeCardWrapper(280);
+  homeCard.__source = { sourceId: '@NASA', sourceName: 'NASA' };
+  const adapter = makeCanonicalizingAdapter(async () => { throw new Error('このテストでは呼ばれない想定'); });
+  const storage = makeAliasAwareStorage();
+  const doc = { querySelectorAll: () => [homeCard], body: {}, createElement: (tag) => makeFakeElement(tag) };
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(homeCard.querySelector('#dismissible'), null, '前提: ホームカードに#dismissibleは無い');
+  const content = homeCard.querySelector('#content');
+  assert.ok(content, '前提: #contentが存在するはず');
+  const button = content.querySelector('.cb-search-register-button');
+  assert.ok(button, 'ホーム形式カードの#content配下に登録ボタンが出ていない');
+  assert.equal(button.textContent, '🚫 このチャンネルをブロック');
+});
+
+test('【yt-contract-tests】発信元リンクが無いカード（広告カード相当）は登録ボタンもエラーも出さずスキップされる', async () => {
+  const search = loadContentSearch();
+  const adCard = makeFakeHomeCardWrapper(280);
+  adCard.__source = null; // getSourceが対象リンク無しでnullを返す実際の広告カードを模す（bell実測[86]）
+  const adapter = makeCanonicalizingAdapter(async () => { throw new Error('このテストでは呼ばれない想定'); });
+  const storage = makeAliasAwareStorage();
+  const doc = { querySelectorAll: () => [adCard], body: {}, createElement: (tag) => makeFakeElement(tag) };
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+
+  const content = adCard.querySelector('#content');
+  assert.equal(content.querySelector('.cb-search-register-button'), null, '広告カードに登録ボタンが出ている');
+  assert.equal(content.querySelector('.cb-search-register-error'), null, '広告カードにエラーバッジが出ている（source無しはエラーではない）');
+  assert.equal(adCard.style.display, '', '広告カードの表示状態が変更されている（触ってはいけない）');
+});
+
+test('【yt-contract-tests】検索結果カードとホームカードが混在するスキャンでも両方処理される', async () => {
+  const search = loadContentSearch();
+  const searchCard = makeFakeYoutubeCardWrapper(300);
+  searchCard.__source = { sourceId: '@SearchChannel', sourceName: 'Search Channel' };
+  const homeCard = makeFakeHomeCardWrapper(280);
+  homeCard.__source = { sourceId: '@HomeChannel', sourceName: 'Home Channel' };
+  const adapter = makeCanonicalizingAdapter(async () => { throw new Error('このテストでは呼ばれない想定'); });
+  const storage = makeAliasAwareStorage();
+  const doc = { querySelectorAll: () => [searchCard, homeCard], body: {}, createElement: (tag) => makeFakeElement(tag) };
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((r) => setImmediate(r));
+
+  assert.ok(searchCard.querySelector('#dismissible').querySelector('.cb-search-register-button'),
+    '検索カード側の登録ボタンが出ていない（混在スキャンで検索側が壊れた）');
+  assert.ok(homeCard.querySelector('#content').querySelector('.cb-search-register-button'),
+    'ホームカード側の登録ボタンが出ていない（混在スキャンでホーム側が壊れた）');
 });
 

@@ -13,12 +13,33 @@ plan: nope-youtube-home / task: yt-contract-tests
 
 | 面 | URL | 対応 | 根拠 |
 |---|---|---|---|
-| ホーム | `www.youtube.com/`（`watch*`を除く） | 新規追加（yt-home-search） | 実DOM未確認。**H条件**——本設計はセレクタが検索結果と同一 (`ytd-video-renderer`) と仮定するが、実装時に0件警告（§4）で検知しながら進める。異なると判明したらこの設計を差し戻す |
+| ホーム | `www.youtube.com/`（`watch*`を除く） | 実装済み（yt-home-search、差し戻し1回で修正） | §1-A参照。実DOMはbellがオーナーのログイン済みChromeで実測[86] |
 | 検索結果 | `www.youtube.com/results*` | 既存を再利用（変更ほぼ無し） | `docs/survey/youtube-home-search.md` で実測済み |
 | 視聴ページ関連動画 | `www.youtube.com/watch*` | 完全撤去（yt-watch-retire） | plan成功条件6。介入自体が対象外になる |
 
-ホームのカード構造が検索結果と異なると判明した場合、ホーム対応は本タスクの契約をそのまま使えない可能性がある。
-これは既知の罠として yt-home-search 側で明示的に再確認すること（本設計では先回りして別契約を発明しない）。
+### 1-A. ホームの実DOM（当初の仮定は誤りだった。実測で確定）
+
+初版は「セレクタが検索結果と同一（`ytd-video-renderer`）」と**仮定**して実装し、`yt-package-smoke`の
+オーナー実Chrome受入（H条件）で `ytd-video-renderer=0件` として差し戻された（room[82]）。
+bellがオーナーのログイン済みホームで実測（[86]）した正しい構造:
+
+```
+ytd-rich-item-renderer ... lockup=true rendered-from-rich-grid
+  div#content
+    yt-lockup-view-model class="ytd-rich-item-renderer lockup ..."
+      div.ytLockupViewModelHost
+        a[href="/watch..."] ...
+        a[href="/@handle"] ...
+```
+
+- **カードは `ytd-rich-item-renderer`**（検索結果 `ytd-video-renderer` とは別）。実測: 37件。
+- **`#dismissible` は存在しない**。登録ボタンのアンカー候補は `#content`（`ytd-rich-item-renderer` 直下）。
+- **`yt-lockup-view-model` をcardSelectorに直接使ってはいけない**。広告カード
+  （`ytd-rich-item-renderer > #content > ytd-ad-slot-renderer > ...`）の内部にも深く入れ子で存在するため、
+  rich-item単位より多くヒットし広告・内部要素まで拾う（実測: lockup=45件 > rich-item=37件）。
+- **広告カードは `getSource` が対象リンク（`/@`・`/channel/`）を持たずnullを返す**ため、既存の
+  「source無しはスキップ」処理（`handleDirectCard`の`if (!source) return;`）で自然に除外される。
+  広告固有の判定コードは追加していない。
 
 ---
 
@@ -32,7 +53,8 @@ UC形式を正本とする正規化を行う。
 {
   siteKey: 'youtube',
   matches: ['*://www.youtube.com/*'],
-  cardSelector: 'ytd-video-renderer',
+  // 検索結果とホームを1つのadapterで拾う（§1-A参照。ytd-video-renderer単独ではホームが0件になる）。
+  cardSelector: 'ytd-video-renderer, ytd-rich-item-renderer',
   getWrapper: (card) => card,
   resolver: {
     type: 'dom_id',
@@ -143,16 +165,19 @@ UC形式を正本とする正規化を行う。
 CB_NAME（`content-name.js`）の `ensureSourceButton` と同じ UX（hover/focus で opacity 0→1、
 position:absolute top-right、クリックでブロック/解除トグル）を **CB_SEARCH エンジンへ追加**する。
 
-### 3-1. 挿入先アンカー
+### 3-1. 挿入先アンカー（検索・ホームで異なる。§1-Aの実測で確定）
 
-`docs/survey/youtube-home-search.md` の実測: `#dismissible` が `position: relative` を持つ実カード内
-要素。ボタンはここへ `position: absolute` で常時挿入する（DOM 生成は毎回、可視は hover/focus で
-opacity 制御——CB_NAME と同じパターン）。
+検索結果は `#dismissible`（`docs/survey/youtube-home-search.md`実測）、ホームは `#content`
+（bell実測[86]、`#dismissible`は存在しない）。ボタンは対象要素へ `position: absolute` で常時挿入する
+（DOM 生成は毎回、可視は hover/focus で opacity 制御——CB_NAME と同じパターン）。
 
-### 3-2. adapter 契約への追加フィールド（オプトイン）
+### 3-2. adapter 契約への追加フィールド（オプトイン・関数形式）
 
 既存の `dom_id` / `async_resolve` リゾルバの挙動を変えないため、**新フィールドはオプトインにする**。
 指定が無いサイト（rakuten・yahoo_shopping・yahoo_auctions・amazon）は現状のまま変更されない。
+
+**アンカーは固定セレクタ文字列ではなく関数**にした——検索・ホームでカード内のid名が異なるため、
+アダプタ自身が「どの候補が実在するか」を優先順で判定する。
 
 ```javascript
 resolver: {
@@ -160,7 +185,10 @@ resolver: {
   getSource(card) { /* 既存 */ },
   register: {
     // 登録ボタンを追加したいアダプタだけが指定する。省略時は現状どおりボタンなし。
-    anchorSelector: '#dismissible',  // ボタンの挿入先（position:relative前提、無ければcard自体にフォールバック）
+    // card（=wrapper）を受け取り、挿入先要素を返す。null/未指定ならcard自体にフォールバック。
+    anchor(card) {
+      return card.querySelector('#dismissible') || card.querySelector('#content') || null;
+    },
   },
 }
 ```
@@ -183,6 +211,10 @@ resolver: {
 `content-name.js` の「初回スキャン0件で `console.warn`」パターン（`docs/design-site-adapter.md` §4-2）を
 CB_SEARCH にも追加する。**現状 CB_SEARCH にはこの検知が無い**（`scan` は素通りするだけ）。
 ホームで `ytd-video-renderer` が実際には存在しない/別要素だった場合に「黙って効かなくなる」ことを防ぐ。
+
+**この安全弁は実際に機能した**: §1-Aの差し戻しは`yt-package-smoke`のオーナー実Chrome受入で
+「登録ボタンが1件も出ない」という**目に見える形**で発覚した（クラッシュや例外ではなく、warn＋機能不全と
+いう想定どおりの挙動）。黙って何も起きない状態にはならなかった。
 
 ---
 

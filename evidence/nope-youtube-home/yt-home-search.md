@@ -134,6 +134,30 @@ bellの裁定（[58]）どおり、**ベストエフォートにはしていな�
 「出す時に毎回設定する」パターンに揃えた）。回帰防止として、登録ボタンの表示テキストを検証する
 アサーションを既存テストへ追加。`node --test 'test/**/*.test.mjs'`で197件green（既存回帰なし）。
 
+## 追補 その2（オーナー実Chrome受入H条件の差し戻し・修正）
+
+**欠陥（bell実測[86]、オーナーのログイン済みYouTubeホームで確認・差し戻し[82]）**: ホーム対応の
+初版は「カード構造は検索結果と同一（`ytd-video-renderer`）」という**未検証の仮定**（設計doc §1で
+明示的にH条件・仮定と記していた）のまま実装しており、実測すると`ytd-video-renderer=0件`で
+登録ボタンが1件も出ないことが判明した。
+
+**実測結果**（bell、オーナーのログイン済みホーム）: ホームの実カードは`ytd-rich-item-renderer`
+（37件）。構造は`ytd-rich-item-renderer > div#content > yt-lockup-view-model > ... a[href="/@handle"]`。
+`#dismissible`は存在しない。`yt-lockup-view-model`（45件）はcardSelectorに直接使うと広告カード
+内部の入れ子まで拾ってしまうため使えない。広告カードは`getSource`が対象リンクを持たずnullを
+返すため、既存の「source無しはスキップ」処理で自然に除外できる。
+
+**修正**: `src/adapters/youtube.js`の`cardSelector`を`'ytd-video-renderer, ytd-rich-item-renderer'`
+（検索結果とホームの両方を1つのadapterで拾う）に変更。`resolver.register`の`anchorSelector`
+（固定文字列）を`anchor(card)`（関数）へ変更し、`#dismissible`を優先・無ければ`#content`へ
+フォールバックする形にした（`content-search.js`側の`applyRegisterButton`も
+`resolveAnchor`関数呼び出しへ統一）。ホーム形式カード・広告カード（source無し）・検索/ホーム混在
+スキャンの3パターンを検証する新規テストを追加。`node --test 'test/**/*.test.mjs'`で
+**201件全てpass**（既存回帰なし）。
+
+reopenは前回・前々回と同様`reopen_has_started_successor`で弾かれたため、done状態のまま直接修正し
+`lattice todo note`で経緯を記録した（本ファイルの追記と合わせて二重に残す）。
+
 ## 変更ファイル
 
 - 変更: `src/storage.js`（sourceAlias関連API追加）
