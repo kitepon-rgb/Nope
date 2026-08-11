@@ -142,6 +142,29 @@ test('manifestはAliExpress専用entryをcontent-search.jsの後に読み込む'
   );
 });
 
+test('manifestはヤフオク・AmazonのPattern C読み込み順と画像公開先を登録する', () => {
+  const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
+  const expectedEntries = [
+    {
+      match: '*://auctions.yahoo.co.jp/*',
+      scripts: ['src/storage.js', 'src/content-search.js', 'src/adapters/yahoo_auction.js'],
+    },
+    {
+      match: '*://www.amazon.co.jp/*',
+      scripts: ['src/storage.js', 'src/content-search.js', 'src/adapters/amazon.js'],
+    },
+  ];
+  const accessibleMatches = manifest.web_accessible_resources.flatMap((item) => item.matches || []);
+
+  for (const expected of expectedEntries) {
+    const entry = manifest.content_scripts.find((item) => item.matches.includes(expected.match));
+    assert.ok(entry, `${expected.match} のcontent_scripts entryが必要`);
+    assert.deepEqual(entry.js, expected.scripts);
+    assert.equal(entry.run_at, 'document_idle');
+    assert.ok(accessibleMatches.includes(expected.match), `${expected.match} の画像公開先登録が必要`);
+  }
+});
+
 test('extractProductIdは/item/<id>.htmlからproductIdを取り出す', () => {
   const search = loadContentSearch();
   assert.equal(search.extractProductId('https://ja.aliexpress.com/item/1005009468037554.html'), '1005009468037554');
@@ -376,6 +399,41 @@ test('dom_id adapterはCB_MTOPなしでgetSourceの結果をブロック判定�
   assert.equal(wrapper.style.display, 'none');
   changeListener({});
   assert.equal(wrapper.style.display, '');
+});
+
+test('async_resolve adapterはCB_MTOPなしでresolveSourceを使い結果をキャッシュする', async () => {
+  const search = loadContentSearch({ includeMtop: false });
+  const wrapper = makeFakeWrapper();
+  const card = { id: 'auction-card' };
+  const cached = [];
+  const storage = {
+    getBlockedSources: async () => ({ seller123: { name: '対象出品者', addedAt: 0 } }),
+    getCachedSource: async () => null,
+    setCachedSource: async (...args) => { cached.push(args); },
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'collapse',
+    onDisplayModeChanged: () => {},
+    removeBlockedSource: async () => {},
+  };
+  const adapter = {
+    siteKey: 'yahoo_auctions',
+    cardSelector: 'li.Product',
+    getWrapper: () => wrapper,
+    resolver: {
+      type: 'async_resolve',
+      getItemId: () => 'auction123',
+      resolveSource: async () => ({ sourceId: 'seller123', sourceName: '対象出品者' }),
+    },
+  };
+  const doc = { querySelectorAll: () => [card], body: {} };
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(wrapper.style.display, 'none');
+  assert.deepEqual(cached, [['yahoo_auctions', 'auction123', 'seller123']]);
 });
 
 test('scanは未ブロックstoreのカードを表示のままにする', async () => {

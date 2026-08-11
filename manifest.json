@@ -61,6 +61,16 @@
       "run_at": "document_idle"
     },
     {
+      "matches": ["*://auctions.yahoo.co.jp/*"],
+      "js": ["src/storage.js", "src/content-search.js", "src/adapters/yahoo_auction.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://www.amazon.co.jp/*"],
+      "js": ["src/storage.js", "src/content-search.js", "src/adapters/amazon.js"],
+      "run_at": "document_idle"
+    },
+    {
       "matches": ["*://www.youtube.com/watch*"],
       "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/youtube_watch.js"],
       "run_at": "document_idle"

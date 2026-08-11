@@ -235,8 +235,28 @@ const CB_SEARCH = (() => {
 
     let queue = null;
     if (resolver.type === 'async_resolve') {
-      const mtop = (deps && deps.mtop) || CB_MTOP;
-      queue = createResolveQueue({ resolveStoreId: (itemId) => mtop.resolveStoreId(itemId) });
+      let resolveSource;
+      if (typeof resolver.resolveSource === 'function') {
+        resolveSource = async (itemId) => {
+          const source = await resolver.resolveSource(itemId);
+          if (!source || !source.sourceId) {
+            throw new Error(`content-search: resolverがsourceIdを返しませんでした siteKey=${siteKey} itemId=${itemId}`);
+          }
+          await storage.setCachedSource(siteKey, itemId, source.sourceId);
+          return source;
+        };
+      } else {
+        // AliExpressだけは既存のCB_MTOPが解決とキャッシュ保存を担当する。
+        const mtop = (deps && deps.mtop) || CB_MTOP;
+        resolveSource = async (itemId) => {
+          const sourceId = await mtop.resolveStoreId(itemId);
+          if (!sourceId) {
+            throw new Error(`content-search: mtopがsourceIdを返しませんでした siteKey=${siteKey} itemId=${itemId}`);
+          }
+          return { sourceId, sourceName: '' };
+        };
+      }
+      queue = createResolveQueue({ resolveStoreId: resolveSource });
     }
 
     function isBlocked(sourceId) {
@@ -291,13 +311,14 @@ const CB_SEARCH = (() => {
           applyVisibility(wrapper, isBlocked(cached), buildVisibilityOptions(cached));
           return;
         }
-        queue.enqueue(itemId, (sourceId, err) => {
+        queue.enqueue(itemId, (source, err) => {
           if (err) {
             console.warn(`content-search: sourceId解決に失敗しました siteKey=${siteKey} itemId=${itemId}`, err);
             return;
           }
+          const { sourceId, sourceName } = source;
           sourceIdByItemId.set(itemId, sourceId);
-          applyVisibility(wrapper, isBlocked(sourceId), buildVisibilityOptions(sourceId));
+          applyVisibility(wrapper, isBlocked(sourceId), buildVisibilityOptions(sourceId, sourceName));
         });
       });
     }
