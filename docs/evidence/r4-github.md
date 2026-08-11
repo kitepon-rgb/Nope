@@ -13,7 +13,7 @@
 
 ## 秘密情報チェック
 
-- `git grep -i "token|secret|password" -- . ':!docs' ':!.lattice'` を実行し、ヒットは全て AliExpress mtop API の cookie トークン処理コード（`src/mtop.js` 等、appKey=12574478 含め既に `CLAUDE.md` に記載済みの公開情報）のみであることを確認。実際のトークン値・APIキー・パスワードの類の混入なし。
+- `git grep -i "token|secret|password" -- . ':!docs' ':!.lattice'` を実行し、ヒットは全て AliExpress mtop API の cookie トークン処理コード（`src/mtop.js` 等、appKey=12574478 含め既に `AGENTS.md` に記載済みの公開情報）のみであることを確認。実際のトークン値・APIキー・パスワードの類の混入なし。
 - `.mcp.json`（peertable-client 起動設定のみ、値なし）、`.codex-sidecar.yml`（パス許可リストのみ）、`.team/setup-state.json`・`.team/project.json.bak`（room の URL・plan key のみ。LAN 内アドレスを含むが認証情報なし）の中身を個別に確認し、いずれも秘密情報を含まないことを確認した上で、運用専用ツールとして `.gitignore` へ除外した（README/LICENSE/.gitignore の担当範囲内の判断）。
 - `peertable.env` の `PEERTABLE_POST_TOKEN` の値そのものは repo 内のどのファイルにも書き込んでいない。
 

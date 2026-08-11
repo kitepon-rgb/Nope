@@ -1,5 +1,5 @@
 // 商品ページ（*://*.aliexpress.com/item/*）にストアブロックボタンを注入する。
-// storeId は a[href*="/store/"] の pathname から取る（mtop 非依存。実測: CLAUDE.md参照）。
+// storeId は a[href*="/store/"] の pathname から取る（mtop 非依存。実測: AGENTS.md参照）。
 // 該当リンクは CSR 描画後に現れるため MutationObserver で待つ。
 // CB_MD5・CB_STORAGE と同じく <script> 連結読み込み前提のグローバル公開（ビルド工程なし）。
 

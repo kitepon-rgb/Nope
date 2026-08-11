@@ -45,7 +45,7 @@ kotoha が r2-placeholder-verify で agent-browser の default セッション�
 拡張ID: `ghckdpfljalbbbjenhkbphpceinjcokd`（ZIP展開先を `--extension` でロードして取得）。
 
 1. **①popupが開く**: `chrome-extension://ghckdpfljalbbbjenhkbphpceinjcokd/popup/popup.html` を直接開き、タイトル「ChromeBlocker」・表示モード切替ラジオ・URL/名前入力欄・追加ボタン・一覧・キャッシュクリアボタンが全て正しくレンダリングされることをスナップショットで確認。フォーム入力→追加ボタンクリックでブラックリストへの追加もpopup.js経由で正常動作することを確認（後述の②とあわせて実測）。
-2. **②検索ページでブロックが効く**: `https://ja.aliexpress.com/w/wholesale-makeup.html` を開いたところ、mtop解決が `FAIL_SYS_USER_VALIDATE`（AliExpress側のbot対策/recaptcha punish、CLAUDE.mdに既知の事象として記載済み）で失敗していることを実際のレスポンス本体（`{"ret":["FAIL_SYS_USER_VALIDATE","RGV587_ERROR::SM::..."],...}`）で確認した。これは `mtop.js`/`content-search.js` の「解決失敗時は静かにフォールバックせずcache未保存のまま表示継続、console.warn」という設計どおりの正しい挙動であり、プロダクションコードの不具合ではない（mtop解決自体の実測はt4/t5で別途完了済み）。r5の本質（配布ZIPのファイル構成・パス解決に欠落がないか）を検証するため、cache経由の確定パスで確認した:
+2. **②検索ページでブロックが効く**: `https://ja.aliexpress.com/w/wholesale-makeup.html` を開いたところ、mtop解決が `FAIL_SYS_USER_VALIDATE`（AliExpress側のbot対策/recaptcha punish、AGENTS.mdに既知の事象として記載済み）で失敗していることを実際のレスポンス本体（`{"ret":["FAIL_SYS_USER_VALIDATE","RGV587_ERROR::SM::..."],...}`）で確認した。これは `mtop.js`/`content-search.js` の「解決失敗時は静かにフォールバックせずcache未保存のまま表示継続、console.warn」という設計どおりの正しい挙動であり、プロダクションコードの不具合ではない（mtop解決自体の実測はt4/t5で別途完了済み）。r5の本質（配布ZIPのファイル構成・パス解決に欠落がないか）を検証するため、cache経由の確定パスで確認した:
    - popupのUIでブラックリストへ storeId `9999999901`（テスト用）を追加。
    - popupのJSコンソール（`chrome.storage.local.set`）で対象productId(`1005008430046420`、検索ページに実在するカード)のキャッシュへ手動で `productStoreCache['1005008430046420'] = '9999999901'` をセット。
    - 検索ページをリロード → 起動時 `scan()` がcache命中し、対象カードの外側wrapperへプレースホルダー（禁止マーク+あっかんべー猫SVG、ストア名「r5smokeテスト用ストア」、ブロック解除ボタン）が正しく挿入されることを確認（`hasPlaceholder: true`）。他カードは通常表示のまま誤爆なし。スクリーンショット: `r5-smoke-blocked.png`。

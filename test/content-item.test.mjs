@@ -1,5 +1,5 @@
 // content-item.js の純粋ロジック（storeId/店名抽出、リンク探索）を検証する。
-// 実ブラウザでのDOM注入・MutationObserver統合は agent-browser による実地確認で担保する（CLAUDE.md参照）。
+// 実ブラウザでのDOM注入・MutationObserver統合は agent-browser による実地確認で担保する（AGENTS.md参照）。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

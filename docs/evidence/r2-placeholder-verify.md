@@ -8,7 +8,7 @@ r1-placeholder（sumire、displayMode API・content-search.js 2モード対応�
 
 ブロック対象の切替・displayMode切替は、拡張の popup ページ（`chrome-extension://efcgoleknjceombadjnbhopdmeeenaed/popup/popup.html`、`agent-browser tab new` で別タブとして開く）から `chrome.storage.sync.set` を直接呼んで行った（popup.js 経由のUI操作ではなく、popup タブが拡張のisolated worldと同じ `chrome.storage` にアクセスできることを利用。t5-search-hide.md の実測手法を踏襲）。
 
-**mtop解決について**: 実測開始時、AliExpress の bot 対策（`FAIL_SYS_USER_VALIDATE`）により mtop API 呼び出しが失敗する状態だった（`docs/evidence/t4-mtop.md` 等で既知の間欠的な壁）。mtop 自体の可用性は t4-mtop で既に実測・doneであり、r2 の受入条件は「表示ロジック（プレースホルダー/collapse切替）」であって mtop 解決そのものの再検証ではないため、実装のキャッシュ命中経路（`storage.getCachedStore` がヒットした場合はmtopを呼ばずに即判定する、`content-search.js` の既存コードそのまま）を使うことにした。CLAUDE.md記載の実測済み事実「商品 1005012897132115 → storeId 1100223114 NailNest Store」を `chrome.storage.local.productStoreCache` へ直接セットしてからページをリロードし、キャッシュ命中経路で検証した。これはmtopのモックではなく、実装済みの正規キャッシュ機構をそのまま使う実測である。
+**mtop解決について**: 実測開始時、AliExpress の bot 対策（`FAIL_SYS_USER_VALIDATE`）により mtop API 呼び出しが失敗する状態だった（`docs/evidence/t4-mtop.md` 等で既知の間欠的な壁）。mtop 自体の可用性は t4-mtop で既に実測・doneであり、r2 の受入条件は「表示ロジック（プレースホルダー/collapse切替）」であって mtop 解決そのものの再検証ではないため、実装のキャッシュ命中経路（`storage.getCachedStore` がヒットした場合はmtopを呼ばずに即判定する、`content-search.js` の既存コードそのまま）を使うことにした。AGENTS.md記載の実測済み事実「商品 1005012897132115 → storeId 1100223114 NailNest Store」を `chrome.storage.local.productStoreCache` へ直接セットしてからページをリロードし、キャッシュ命中経路で検証した。これはmtopのモックではなく、実装済みの正規キャッシュ機構をそのまま使う実測である。
 
 ## 受入条件ごとの実測結果
 

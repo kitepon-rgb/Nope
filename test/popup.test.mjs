@@ -1,5 +1,5 @@
 // popup.js の純粋ロジック（並び替え・サイトグルーピング・キーワードリスト）を検証する。
-// 実際のDOM描画・拡張ロードはブラウザ実測停止指示により保留（CLAUDE.md参照）。
+// 実際のDOM描画・拡張ロードはブラウザ実測停止指示により保留（AGENTS.md参照）。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
