@@ -308,6 +308,12 @@ const CB_SEARCH = (() => {
       resolveBeforeToggle, onResolutionFailed, onToggled,
     );
     button.style.display = '';
+    // docs/design-youtube-surfaces.md §3-3: 表示テキストは毎回のapply時に反映する
+    // （content-name.jsのapplySourceButtonと同じ「呼ばれるたびにtextContentを設定する」パターン。
+    // このブロックには常にblocked=falseの時しか到達しないが、CB_NAMEとの実装対称性のため
+    // 分岐を残す——2026-08-11実Chrome smokeでtextContent未設定＝空欄ボタンの欠陥が出たため、
+    // 「作る時に一度だけ」ではなく「出す時に毎回」設定する形にした）。
+    button.textContent = blocked ? 'ブロック解除' : '🚫 このチャンネルをブロック';
   }
 
   /**

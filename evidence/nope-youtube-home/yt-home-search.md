@@ -119,6 +119,21 @@ bellの裁定（[58]）どおり、**ベストエフォートにはしていな�
   なし」と推測しない設計上、恒久的にresolutionFailedになる）。実運用での影響規模は
   `yt-package-smoke`の実Chrome受入で確認する。
 
+## 追補（yt-package-smoke実Chrome検証で発見・修正）
+
+**欠陥（kotone報告[69]、bell裁定[70]で修正必須）**: `yt-package-smoke`でChrome for Testingへ実際に
+拡張をロードして検証したところ、登録ボタン（`.cb-search-register-button`）に`textContent`を
+設定するコードが無く、視覚的に空欄ボタンになっていた（`title`/`aria-label`は設定済みでスクリーン
+リーダー上は分かるが、視覚的なラベルが無い）。ユニットテストでは`textContent`を一度も検証して
+いなかったため見逃していた——**実ブラウザでのロード検証で初めて発覚した欠陥**であり、
+「fixtureが実装者の想像で作られると実DOMの誤解を再現してgreenになる」という既知の罠の一種
+（今回はfixtureの問題ではなくアサーション漏れだが、根は同じ「実測しないと分からない」）。
+
+**修正**: `ensureRegisterButton`ではなく`applyRegisterButton`（呼ばれるたびに実行される側）で
+`button.textContent`を設定するよう変更した（`content-name.js`の`applySourceButton`と同じ
+「出す時に毎回設定する」パターンに揃えた）。回帰防止として、登録ボタンの表示テキストを検証する
+アサーションを既存テストへ追加。`node --test 'test/**/*.test.mjs'`で197件green（既存回帰なし）。
+
 ## 変更ファイル
 
 - 変更: `src/storage.js`（sourceAlias関連API追加）

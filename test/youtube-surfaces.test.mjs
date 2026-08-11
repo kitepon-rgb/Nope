@@ -114,6 +114,8 @@ test('【yt-contract-tests/red】CB_SEARCHは未ブロックカードへhover/fo
   const anchor = card.querySelector('#dismissible');
   const button = anchor.querySelector('.cb-search-register-button');
   assert.ok(button, '#dismissible配下に登録ボタンが無い（CB_SEARCHに登録UIが未実装）');
+  // 2026-08-11 kotoneの実Chrome smokeで発見: textContent未設定のため視覚的に空欄ボタンだった欠陥[69]の回帰防止。
+  assert.equal(button.textContent, '🚫 このチャンネルをブロック', '登録ボタンの表示テキストが空/想定と異なる');
   assert.equal(button.style.opacity, '0');
   anchor.listeners.mouseenter && anchor.listeners.mouseenter();
   assert.equal(button.style.opacity, '1');
