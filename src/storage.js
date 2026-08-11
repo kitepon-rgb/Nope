@@ -1,6 +1,8 @@
 // Nope — ストレージ層。
 // blocklist は端末間で同期したいので chrome.storage.sync、
 // itemId→sourceId の解決キャッシュは容量が大きく端末固有でよいので chrome.storage.local に置く。
+// sourceAlias（生ID→正本ID。例: YouTubeのhandle→チャンネルID）は blocklist と同じく
+// 端末間で共有すべき正規データなので chrome.storage.sync に置く（room裁定2026-08-11、[51]）。
 // content script 群から <script> 連結で読み込まれる前提のグローバル公開（ビルド工程なし・MV3 content_scripts）。
 
 'use strict';
@@ -59,6 +61,34 @@ const CB_STORAGE = (() => {
 
   async function clearCache() {
     await chrome.storage.local.remove('itemSourceCache');
+  }
+
+  // sourceAlias: 生ID（例: YouTubeのhandle '@xxx'）→ 正本ID（例: チャンネルID 'UCxxx'）の対応。
+  // blockedSourcesと同じくchrome.storage.syncに置き、端末間で共有する。
+  // 解決（fetch等でaliasを知る操作）自体はここでは行わない——呼び出し側の責務。
+  async function getSourceAliases(siteKey) {
+    const { sourceAliases } = await chrome.storage.sync.get({ sourceAliases: {} });
+    return sourceAliases[siteKey] ?? {};
+  }
+
+  async function setSourceAlias(siteKey, rawId, canonicalId) {
+    const { sourceAliases } = await chrome.storage.sync.get({ sourceAliases: {} });
+    if (!sourceAliases[siteKey]) sourceAliases[siteKey] = {};
+    sourceAliases[siteKey][rawId] = canonicalId;
+    await chrome.storage.sync.set({ sourceAliases });
+    return sourceAliases[siteKey];
+  }
+
+  // sourceAliases[siteKey] の変更を購読する（他端末からの同期・同一端末内の別カードでの解決を反映）。
+  function onSourceAliasesChanged(siteKey, listener) {
+    const wrapped = (changes, area) => {
+      if (area !== 'sync' || !changes.sourceAliases) return;
+      const oldSite = changes.sourceAliases.oldValue?.[siteKey] ?? {};
+      const newSite = changes.sourceAliases.newValue?.[siteKey] ?? {};
+      if (JSON.stringify(oldSite) !== JSON.stringify(newSite)) listener(newSite);
+    };
+    chrome.storage.onChanged.addListener(wrapped);
+    return () => chrome.storage.onChanged.removeListener(wrapped);
   }
 
   // すべてのサイトのブロックリストを一括取得する（popup のサイト別描画用）。
@@ -141,6 +171,7 @@ const CB_STORAGE = (() => {
   return {
     getBlockedSources, addBlockedSource, removeBlockedSource, getAllBlockedSources,
     getCachedSource, setCachedSource, clearCache, onBlockedSourcesChanged,
+    getSourceAliases, setSourceAlias, onSourceAliasesChanged,
     getBlockedKeywords, addBlockedKeyword, removeBlockedKeyword, onBlockedKeywordsChanged,
     getDisplayMode, setDisplayMode, onDisplayModeChanged,
   };

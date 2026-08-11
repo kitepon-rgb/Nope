@@ -161,9 +161,11 @@ test('【yt-contract-tests/red】youtube_watch.js アダプタが撤去されて
   assert.equal(existsSync(YOUTUBE_WATCH_ADAPTER_PATH), false, 'src/adapters/youtube_watch.js がまだ存在する');
 });
 
-// room裁定[45][47][48]: 成功条件2「片方だけ再出現する状態を許さない」はUC正本化で満たす。
-// blockedSourcesはUC ID 1件のみが正本、handle→UCの対応はitemSourceCache（storage.getCachedSource/
-// setCachedSource）を再利用する。以下はCB_SEARCHエンジン側のcanonicalize統合を検証する。
+// room裁定[45][47][48][51][52]: 成功条件2「片方だけ再出現する状態を許さない」はUC正本化で満たす。
+// blockedSourcesはUC ID 1件のみが正本。handle→UCの対応（alias）はblockedSourcesと同じく
+// chrome.storage.sync（storage.getSourceAliases/setSourceAlias、端末間で共有）に持つ。
+// 通信（canonicalize呼び出し）は「表示するだけ」では絶対に発生させず、ユーザーが登録ボタンを
+// クリックした時だけ発生させる（bell異議[51]・kotone監査[52]で欠陥指摘、修正）。
 function makeCanonicalizingAdapter(canonicalizeImpl) {
   return {
     siteKey: 'youtube',
@@ -178,95 +180,127 @@ function makeCanonicalizingAdapter(canonicalizeImpl) {
   };
 }
 
-test('【yt-contract-tests】handle形式カードは正本UC IDへ解決してから照合する（既にUCでブロック済みなら隠れる）', async () => {
-  const search = loadContentSearch();
-  const card = makeFakeYoutubeCardWrapper(300);
-  card.__source = { sourceId: '@NASA', sourceName: 'NASA' };
-  const adapter = makeCanonicalizingAdapter(async (rawId) => {
-    assert.equal(rawId, '@NASA');
-    return 'UCLA_DiR1FfKNvjuUpBHmylQ';
-  });
-  const storage = {
-    getBlockedSources: async () => ({ UCLA_DiR1FfKNvjuUpBHmylQ: { name: 'NASA', addedAt: 0 } }),
-    getCachedSource: async () => null,
-    setCachedSource: async () => {},
+function makeAliasAwareStorage(overrides = {}) {
+  let aliases = { ...(overrides.initialAliases || {}) };
+  return {
+    getBlockedSources: async () => ({}),
     onBlockedSourcesChanged: () => {},
     getDisplayMode: async () => 'collapse',
     onDisplayModeChanged: () => {},
+    addBlockedSource: async () => {},
+    removeBlockedSource: async () => {},
+    getSourceAliases: async () => ({ ...aliases }),
+    setSourceAlias: async (_siteKey, rawId, canonicalId) => {
+      aliases = { ...aliases, [rawId]: canonicalId };
+      return { ...aliases };
+    },
+    onSourceAliasesChanged: () => {},
+    ...overrides,
   };
-  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+}
+
+test('【yt-contract-tests】カードを表示するだけでは通信（canonicalize）を一切発生させない（未知handleカード複数でも0回）', async () => {
+  const search = loadContentSearch();
+  const cards = Array.from({ length: 5 }, (_, i) => {
+    const c = makeFakeYoutubeCardWrapper(300);
+    c.__source = { sourceId: `@handle${i}`, sourceName: `Channel ${i}` };
+    return c;
+  });
+  let canonicalizeCalls = 0;
+  const adapter = makeCanonicalizingAdapter(async () => { canonicalizeCalls += 1; return 'UCxxxxx'; });
+  const storage = makeAliasAwareStorage();
+  const doc = { querySelectorAll: () => cards, body: {}, createElement: (tag) => makeFakeElement(tag) };
 
   const controller = search.init({ document: doc, storage, adapter });
   await controller.start();
   await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
 
-  assert.equal(card.style.display, 'none', 'handle形式カードがUC正本での照合結果を反映していない');
+  assert.equal(canonicalizeCalls, 0,
+    'スキャン時（表示するだけ）にcanonicalizeが呼ばれている。これはbell異議[51]で指摘された欠陥そのもの');
 });
 
-test('【yt-contract-tests】登録ボタンでのブロックはキャッシュ済みの正本UC IDで保存する（生のhandleを保存しない）', async () => {
+test('【yt-contract-tests】既知のalias（同期済み）があればfetchなしでUC正本と照合する', async () => {
   const search = loadContentSearch();
   const card = makeFakeYoutubeCardWrapper(300);
   card.__source = { sourceId: '@NASA', sourceName: 'NASA' };
   let canonicalizeCalls = 0;
   const adapter = makeCanonicalizingAdapter(async () => { canonicalizeCalls += 1; return 'UCLA_DiR1FfKNvjuUpBHmylQ'; });
-  const added = [];
-  const storage = {
-    getBlockedSources: async () => ({}),
-    getCachedSource: async () => null,
-    setCachedSource: async () => {},
-    onBlockedSourcesChanged: () => {},
-    getDisplayMode: async () => 'collapse',
-    onDisplayModeChanged: () => {},
-    addBlockedSource: async (siteKey, sourceId, sourceName) => { added.push({ siteKey, sourceId, sourceName }); },
-    removeBlockedSource: async () => {},
-  };
+  const storage = makeAliasAwareStorage({
+    getBlockedSources: async () => ({ UCLA_DiR1FfKNvjuUpBHmylQ: { name: 'NASA', addedAt: 0 } }),
+    initialAliases: { '@NASA': 'UCLA_DiR1FfKNvjuUpBHmylQ' },
+  });
   const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
 
   const controller = search.init({ document: doc, storage, adapter });
   await controller.start();
   await new Promise((r) => setImmediate(r));
+
+  assert.equal(card.style.display, 'none', '既知aliasでのUC正本照合結果が反映されていない');
+  assert.equal(canonicalizeCalls, 0, '既知aliasがあるのにcanonicalizeが呼ばれている（無駄な通信）');
+});
+
+test('【yt-contract-tests】登録ボタンのクリック時だけcanonicalizeが呼ばれ、正本UC IDで保存・alias同期される', async () => {
+  const search = loadContentSearch();
+  const card = makeFakeYoutubeCardWrapper(300);
+  card.__source = { sourceId: '@NASA', sourceName: 'NASA' };
+  let canonicalizeCalls = 0;
+  const adapter = makeCanonicalizingAdapter(async (rawId) => {
+    canonicalizeCalls += 1;
+    assert.equal(rawId, '@NASA');
+    return 'UCLA_DiR1FfKNvjuUpBHmylQ';
+  });
+  const added = [];
+  const storage = makeAliasAwareStorage({
+    addBlockedSource: async (siteKey, sourceId, sourceName) => { added.push({ siteKey, sourceId, sourceName }); },
+  });
+  const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
   await new Promise((r) => setImmediate(r));
+
+  assert.equal(canonicalizeCalls, 0, '登録ボタンをクリックする前にcanonicalizeが呼ばれている');
 
   const anchor = card.querySelector('#dismissible');
   const button = anchor.querySelector('.cb-search-register-button');
-  assert.ok(button, '正本ID解決成功後に登録ボタンが出ていない');
+  assert.ok(button, '未確認handleカードにも通常の登録ボタンが出ているはず（エラー扱いにしない）');
   await button.listeners.click({ preventDefault() {}, stopPropagation() {} });
 
+  assert.equal(canonicalizeCalls, 1, 'クリック時に一度だけcanonicalizeが呼ばれるべき');
   assert.deepEqual(added, [{ siteKey: 'youtube', sourceId: 'UCLA_DiR1FfKNvjuUpBHmylQ', sourceName: 'NASA' }],
     '登録ボタンが生のhandle(@NASA)を保存している（UC正本での保存になっていない）');
-  assert.equal(canonicalizeCalls, 1, 'canonicalizeが解決済みキャッシュ相当の再利用をせず余計に呼ばれている');
+  assert.equal(await storage.getSourceAliases('youtube').then((a) => a['@NASA']), 'UCLA_DiR1FfKNvjuUpBHmylQ',
+    '解決したaliasがsourceAliases（sync）へ保存されていない');
 });
 
-test('【yt-contract-tests】正本ID解決に失敗したカードは登録操作を提供せず、可視のエラーを出す（部分登録禁止）', async () => {
+test('【yt-contract-tests】未確認handleカードは通常の登録ボタンを出し、クリック時の解決失敗でだけ可視エラーへ切り替わる（部分登録禁止）', async () => {
   const warnings = [];
   const search = loadContentSearch({ consoleImpl: { ...console, warn: (...args) => warnings.push(args) } });
   const card = makeFakeYoutubeCardWrapper(300);
   card.__source = { sourceId: '@broken', sourceName: 'Broken Channel' };
   const adapter = makeCanonicalizingAdapter(async () => { throw new Error('canonical linkが見つかりませんでした'); });
   const added = [];
-  const storage = {
-    getBlockedSources: async () => ({}),
-    getCachedSource: async () => null,
-    setCachedSource: async () => {},
-    onBlockedSourcesChanged: () => {},
-    getDisplayMode: async () => 'collapse',
-    onDisplayModeChanged: () => {},
+  const storage = makeAliasAwareStorage({
     addBlockedSource: async (siteKey, sourceId, sourceName) => { added.push({ siteKey, sourceId, sourceName }); },
-    removeBlockedSource: async () => {},
-  };
+  });
   const doc = { querySelectorAll: () => [card], body: {}, createElement: (tag) => makeFakeElement(tag) };
 
   const controller = search.init({ document: doc, storage, adapter });
   await controller.start();
   await new Promise((r) => setImmediate(r));
-  await new Promise((r) => setImmediate(r));
 
   const anchor = card.querySelector('#dismissible');
-  const registerButton = anchor.querySelector('.cb-search-register-button');
-  assert.equal(registerButton, null, '解決失敗カードに機能する登録ボタンを出してはいけない（部分登録の入口になる）');
+  const buttonBeforeClick = anchor.querySelector('.cb-search-register-button');
+  assert.ok(buttonBeforeClick, '未確認handleカードの初期表示で通常の登録ボタンが出ていない（誤ってエラー扱いしている）');
+  assert.equal(anchor.querySelector('.cb-search-register-error'), null, 'クリック前からエラーバッジが出ている');
+
+  await buttonBeforeClick.listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const registerButtonAfterClick = anchor.querySelector('.cb-search-register-button');
+  assert.equal(registerButtonAfterClick.style.display, 'none', '解決失敗後も機能する登録ボタンが見えている');
   const errorBadge = anchor.querySelector('.cb-search-register-error');
-  assert.ok(errorBadge, '解決失敗カードに可視のエラーが出ていない');
+  assert.ok(errorBadge, '解決失敗後に可視のエラーが出ていない');
   assert.equal(errorBadge.style.opacity, undefined, 'エラーは常時可視であるべき（hover専用にしてはいけない）');
   assert.equal(added.length, 0, '解決失敗時に生IDでの部分登録が行われている');
   assert.equal(warnings.length, 1, '解決失敗をconsole.warnで記録していない');

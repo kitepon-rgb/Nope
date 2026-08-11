@@ -63,7 +63,7 @@ entry でも読み込まれるため、AliExpress 既定アダプタの起動だ
 
 ### `storage`
 
-ブロック対象の発信元一覧（`chrome.storage.sync` の `blockedSources`。サイト別にキー分けされた構造）、キーワード一覧（同 `blockedKeywords`。Yahoo ニュース / Yahoo! JAPAN のサイト別配列）、表示モード設定（同 `displayMode`、既定値 `placeholder`）を端末間で同期して保持するために必要。加えて itemId→sourceId の解決結果キャッシュ（`chrome.storage.local` の `itemSourceCache`、`{siteKey}:{itemId}` 形式のキーでフラット保存。YouTubeのhandle→チャンネルID対応もこのキャッシュを再利用する）を保存するために必要。これらはすべて拡張の中核機能（非表示判定の高速化・ブロック対象の永続化）に直結し、他の権限では代替できない。
+ブロック対象の発信元一覧（`chrome.storage.sync` の `blockedSources`。サイト別にキー分けされた構造）、キーワード一覧（同 `blockedKeywords`。Yahoo ニュース / Yahoo! JAPAN のサイト別配列）、表示モード設定（同 `displayMode`、既定値 `placeholder`）、発信元IDの別形式対応（同 `sourceAliases`。YouTubeのhandle→チャンネルID対応。blockedSourcesと同じく端末間同期が必要なため`sync`に置く）を端末間で同期して保持するために必要。加えて itemId→sourceId の解決結果キャッシュ（`chrome.storage.local` の `itemSourceCache`、`{siteKey}:{itemId}` 形式のキーでフラット保存）を保存するために必要。これらはすべて拡張の中核機能（非表示判定の高速化・ブロック対象の永続化）に直結し、他の権限では代替できない。
 
 ### ホストアクセス `*://*.aliexpress.com/*`（content script）
 
@@ -92,7 +92,7 @@ Yahoo!ショッピングの検索結果ページのみで実行される。
 セレクタが一致しなければ初回スキャン0件の`console.warn`のみで何も起きない（黙って誤動作しない設計）。
 
 - **検索結果ページ・ホーム**（`content-search.js` + `youtube` アダプタ、パターンA）: 動画カード内のチャンネルリンク（`a[href*="/@"]` または `a[href*="/channel/"]`）からチャンネル識別子を取得し、ブロック対象かどうか判定して非表示にするために必要。
-- **チャンネルID解決**: handle形式（`/@handle`）とチャンネルID形式（`/channel/UC...`）が同一チャンネルを指す場合に片方だけブロックが効かなくなる問題を避けるため、ユーザーがチャンネルをブロック/解除する操作をした時だけ、当該チャンネル自身のページ（`https://www.youtube.com/@{handle}` または `https://www.youtube.com/channel/{チャンネルID}`）を取得し、応答に含まれる`canonical link`から正本のチャンネルIDを解決する。**アクセス先はYouTube自身のドメインのみ。拡張の開発者サーバーへは何も送信しない。** 解決結果はローカルキャッシュ（`chrome.storage.local`の`itemSourceCache`）に保存し、同じhandleへの重複リクエストを回避する。解決に失敗した場合はブロック操作自体を提供しない（表示名などへの推測フォールバックはしない）。
+- **チャンネルID解決**: handle形式（`/@handle`）とチャンネルID形式（`/channel/UC...`）が同一チャンネルを指す場合に片方だけブロックが効かなくなる問題を避けるため、ユーザーがチャンネルをブロック/解除する操作をした時だけ（カードの表示・スキャンだけでは発生しない）、当該チャンネル自身のページ（`https://www.youtube.com/@{handle}` または `https://www.youtube.com/channel/{チャンネルID}`）を取得し、応答に含まれる`canonical link`から正本のチャンネルIDを解決する。**アクセス先はYouTube自身のドメインのみ。拡張の開発者サーバーへは何も送信しない。** 解決結果は`chrome.storage.sync`の`sourceAliases`に保存し（blockedSourcesと同じく端末間で共有し、同じhandleへの重複リクエストを他端末でも回避する）、解決に失敗した場合はブロック操作自体を提供しない（表示名などへの推測フォールバックはしない）。
 
 ### ホストアクセス `*://news.yahoo.co.jp/*`（content script）
 

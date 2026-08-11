@@ -265,3 +265,50 @@ test('getAllBlockedSourcesは全サイトのblockedSourcesを返す', async () =
   assert.equal(all.aliexpress['111'].name, 'AliStore');
   assert.equal(all.rakuten['shopA'].name, '楽天店A');
 });
+
+// sourceAlias（handle→チャンネルID等）はblockedSourcesと同じくsyncへ保存する
+// （room裁定2026-08-11・[51]: localのitemSourceCacheは端末間で共有されないため不適）。
+test('getSourceAliasesは未設定時に空オブジェクトを返す', async () => {
+  const storage = loadStorage(chromeMock());
+  assert.deepEqual(Object.keys(await storage.getSourceAliases('youtube')), []);
+});
+
+test('setSourceAliasはsyncへ保存しgetSourceAliasesが返す', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.setSourceAlias('youtube', '@NASA', 'UCLA_DiR1FfKNvjuUpBHmylQ');
+  assert.equal(mock.areas.sync.sourceAliases.youtube['@NASA'], 'UCLA_DiR1FfKNvjuUpBHmylQ');
+  const aliases = await storage.getSourceAliases('youtube');
+  assert.equal(aliases['@NASA'], 'UCLA_DiR1FfKNvjuUpBHmylQ');
+});
+
+test('setSourceAliasはsiteKeyを分けて管理する', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.setSourceAlias('youtube', '@NASA', 'UC1');
+  await storage.setSourceAlias('other_site', '@x', 'UC2');
+  assert.deepEqual(Object.keys(await storage.getSourceAliases('youtube')), ['@NASA']);
+  assert.deepEqual(Object.keys(await storage.getSourceAliases('other_site')), ['@x']);
+});
+
+test('onSourceAliasesChangedはsync変更で発火し解除関数で止まる', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  const seen = [];
+  const unsubscribe = storage.onSourceAliasesChanged('youtube', (value) => seen.push(value));
+  await storage.setSourceAlias('youtube', '@NASA', 'UC1');
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]['@NASA'], 'UC1');
+  unsubscribe();
+  await storage.setSourceAlias('youtube', '@Other', 'UC2');
+  assert.equal(seen.length, 1);
+});
+
+test('onSourceAliasesChangedは対象siteKey以外の変更では発火しない', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  const seen = [];
+  storage.onSourceAliasesChanged('youtube', (value) => seen.push(value));
+  await storage.setSourceAlias('other_site', '@x', 'UC1');
+  assert.equal(seen.length, 0);
+});

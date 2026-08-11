@@ -180,9 +180,12 @@ const CB_SEARCH = (() => {
   /**
    * @param {any} doc @param {Map<any, any>} buttonByCard @param {any} card @param {any} anchor
    * @param {string} sourceId @param {string} sourceName @param {string} siteKey @param {any} storage
+   * @param {Function} [resolveBeforeToggle] クリック時にsourceIdを確定させる非同期関数（省略時はsourceIdをそのまま使う）。
+   *   rejectしたらブロック状態を変更せずonResolutionFailedを呼ぶ（部分登録禁止）。
+   * @param {Function} [onResolutionFailed] resolveBeforeToggleが失敗した時に呼ぶ（可視エラーへの切替）。
    * @param {Function} onToggled
    */
-  function ensureRegisterButton(doc, buttonByCard, card, anchor, sourceId, sourceName, siteKey, storage, onToggled) {
+  function ensureRegisterButton(doc, buttonByCard, card, anchor, sourceId, sourceName, siteKey, storage, resolveBeforeToggle, onResolutionFailed, onToggled) {
     let button = buttonByCard.get(card);
     if (button) return button;
 
@@ -216,11 +219,21 @@ const CB_SEARCH = (() => {
       }
       button.disabled = true;
       try {
+        let resolvedSourceId = sourceId;
+        if (resolveBeforeToggle) {
+          try {
+            resolvedSourceId = await resolveBeforeToggle();
+          } catch (err) {
+            console.warn(`content-search: クリック時の識別子解決に失敗しました siteKey=${siteKey}`, err);
+            if (onResolutionFailed) onResolutionFailed();
+            return;
+          }
+        }
         const current = await storage.getBlockedSources(siteKey);
-        if (current[sourceId]) {
-          await storage.removeBlockedSource(siteKey, sourceId);
+        if (current[resolvedSourceId]) {
+          await storage.removeBlockedSource(siteKey, resolvedSourceId);
         } else {
-          await storage.addBlockedSource(siteKey, sourceId, sourceName);
+          await storage.addBlockedSource(siteKey, resolvedSourceId, sourceName);
         }
         if (onToggled) await onToggled();
       } finally {
@@ -265,12 +278,14 @@ const CB_SEARCH = (() => {
    * 識別子解決に失敗したカードは、ボタンの代わりに常時可視のエラーバッジを出す。
    * @param {{doc: any, buttonByCard: Map<any, any>, errorBadgeByCard: Map<any, any>, card: any,
    *   wrapper: any, anchorSelector?: string, sourceId: string, sourceName: string, siteKey: string,
-   *   storage: any, blocked: boolean, resolutionFailed?: boolean, onToggled: Function}} deps
+   *   storage: any, blocked: boolean, resolutionFailed?: boolean,
+   *   resolveBeforeToggle?: Function, onResolutionFailed?: Function, onToggled: Function}} deps
    */
   function applyRegisterButton(deps) {
     const {
       doc, buttonByCard, errorBadgeByCard, card, wrapper, anchorSelector,
-      sourceId, sourceName, siteKey, storage, blocked, resolutionFailed, onToggled,
+      sourceId, sourceName, siteKey, storage, blocked, resolutionFailed,
+      resolveBeforeToggle, onResolutionFailed, onToggled,
     } = deps;
     const anchor = (anchorSelector && wrapper.querySelector && wrapper.querySelector(anchorSelector)) || wrapper;
 
@@ -286,7 +301,10 @@ const CB_SEARCH = (() => {
       if (existing) existing.style.display = 'none';
       return;
     }
-    const button = ensureRegisterButton(doc, buttonByCard, card, anchor, sourceId, sourceName, siteKey, storage, onToggled);
+    const button = ensureRegisterButton(
+      doc, buttonByCard, card, anchor, sourceId, sourceName, siteKey, storage,
+      resolveBeforeToggle, onResolutionFailed, onToggled,
+    );
     button.style.display = '';
   }
 
@@ -378,11 +396,13 @@ const CB_SEARCH = (() => {
     const directCardInfo = new Map();
     const registerButtonByCard = new Map();
     const errorBadgeByCard = new Map();
-    // docs/design-youtube-surfaces.md §2/§4-A: resolver.canonicalize が居るアダプタでは、
-    // 生のsourceId（handle形式等）を正本ID（UC形式）へ解決してから保存・照合する。
-    // 解決結果は itemSourceCache（storage.getCachedSource/setCachedSource）を再利用してキャッシュし、
-    // 同一カードの二重解決を防ぐため in-flight のカードは pendingCanonicalization で追跡する。
-    const pendingCanonicalization = new Set();
+    // docs/design-youtube-surfaces.md §2: resolver.canonicalize が居るアダプタでは、生のsourceId
+    // （handle形式等）を正本ID（UC形式）へ解決してから保存・照合する。
+    // room裁定2026-08-11（[46][51][52]）: 通信は「見るだけ」で発生してはならない。
+    // スキャン時（カード描画時）は sourceAliases（chrome.storage.sync、端末間で共有）の
+    // 既知の対応を参照するだけで、未知なら「未確認」のまま表示する（fetchしない）。
+    // 実際にfetchが起きるのは、ユーザーが登録ボタンをクリックした時だけ。
+    let sourceAliases = {};
     let blockedSources = {};
     let displayMode = DEFAULT_MODE;
     let resolvedSourceCount = 0;
@@ -450,6 +470,24 @@ const CB_SEARCH = (() => {
       if (sourceId && wrapper) applyVisibility(wrapper, isBlocked(sourceId), buildVisibilityOptions(sourceId));
     }
 
+    // 生sourceIdの正本ID（UC形式）を、既知のalias（同期済み）だけから引く。fetchはしない。
+    // UC形式は既に正本。未知のhandle形式はnull（「まだ確認していない」）を返す。
+    function knownCanonicalId(rawSourceId) {
+      if (!resolver.canonicalize) return rawSourceId;
+      if (rawSourceId.startsWith('UC')) return rawSourceId;
+      return sourceAliases[rawSourceId] || null;
+    }
+
+    // クリック時だけ呼ばれる。既知ならfetchせずそのまま返し、未知ならresolver.canonicalizeでfetchして
+    // sourceAliases（chrome.storage.sync、端末間共有）へ保存する。失敗はthrow（部分登録禁止）。
+    async function resolveAliasOnDemand(rawSourceId) {
+      const known = knownCanonicalId(rawSourceId);
+      if (known) return known;
+      const canonicalId = await resolver.canonicalize(rawSourceId);
+      sourceAliases = await storage.setSourceAlias(siteKey, rawSourceId, canonicalId);
+      return canonicalId;
+    }
+
     function applyDirectCard(card) {
       const info = directCardInfo.get(card);
       if (!info) return;
@@ -460,8 +498,36 @@ const CB_SEARCH = (() => {
           applyRegisterButton({
             doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper: info.wrapper,
             anchorSelector: resolver.register.anchorSelector,
-            sourceId: info.sourceId, sourceName: info.sourceName,
+            sourceId: info.rawSourceId, sourceName: info.sourceName,
             siteKey, storage, blocked: false, resolutionFailed: true, onToggled: async () => {},
+          });
+        }
+        return;
+      }
+
+      if (info.sourceId === null) {
+        // aliasがまだ未確認: 誤ってブロック済みと見せない安全側の既定（未ブロック表示）。
+        // 登録ボタンは通常どおり出し、クリック時にだけ解決（fetch）を試みる。
+        applyVisibility(info.wrapper, false, { mode: displayMode });
+        if (resolver.register) {
+          applyRegisterButton({
+            doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper: info.wrapper,
+            anchorSelector: resolver.register.anchorSelector,
+            sourceId: info.rawSourceId, sourceName: info.sourceName,
+            siteKey, storage, blocked: false,
+            resolveBeforeToggle: async () => {
+              const canonicalId = await resolveAliasOnDemand(info.rawSourceId);
+              directCardInfo.set(card, { ...info, sourceId: canonicalId });
+              return canonicalId;
+            },
+            onResolutionFailed: () => {
+              directCardInfo.set(card, { ...info, resolutionFailed: true });
+              applyDirectCard(card);
+            },
+            onToggled: async () => {
+              blockedSources = await storage.getBlockedSources(siteKey);
+              applyDirectCard(card);
+            },
           });
         }
         return;
@@ -483,44 +549,21 @@ const CB_SEARCH = (() => {
       }
     }
 
-    // rawSourceIdを正本ID（UC形式）へ解決する。UC形式は既に正本なのでそのまま返す。
-    // handle形式はキャッシュ優先で解決し、キャッシュミスならresolver.canonicalizeを呼んで保存する。
-    async function resolveCanonicalId(rawSourceId) {
-      const cached = await storage.getCachedSource(siteKey, rawSourceId);
-      if (cached) return cached;
-      const canonicalId = await resolver.canonicalize(rawSourceId);
-      await storage.setCachedSource(siteKey, rawSourceId, canonicalId);
-      return canonicalId;
-    }
-
     function handleDirectCard(card) {
-      if (directCardInfo.has(card) || pendingCanonicalization.has(card)) return;
+      if (directCardInfo.has(card)) return;
       const source = resolver.getSource(card);
       if (!source) return;
       const wrapper = getWrapper(card);
       if (!wrapper) return;
 
-      if (!resolver.canonicalize) {
-        directCardInfo.set(card, { ...source, wrapper });
-        applyDirectCard(card);
-        return;
-      }
-
-      // 正本ID解決は非同期。解決成功時だけ保存・照合IDをUCへ正規化する（成功時のみdirectCardInfoへ登録し、
-      // 失敗時はエラーカードとして登録し、部分登録（生IDでの登録）はしない）。
-      pendingCanonicalization.add(card);
-      resolveCanonicalId(source.sourceId)
-        .then((canonicalId) => {
-          pendingCanonicalization.delete(card);
-          directCardInfo.set(card, { sourceId: canonicalId, sourceName: source.sourceName, wrapper });
-          applyDirectCard(card);
-        })
-        .catch((err) => {
-          pendingCanonicalization.delete(card);
-          console.warn(`content-search: 正本ID解決に失敗しました siteKey=${siteKey} sourceId=${source.sourceId}`, err);
-          directCardInfo.set(card, { sourceId: source.sourceId, sourceName: source.sourceName, wrapper, resolutionFailed: true });
-          applyDirectCard(card);
-        });
+      // 同期通信は一切しない。既知aliasの参照だけ（未知ならsourceId: null=「未確認」のまま表示）。
+      directCardInfo.set(card, {
+        rawSourceId: source.sourceId,
+        sourceId: knownCanonicalId(source.sourceId),
+        sourceName: source.sourceName,
+        wrapper,
+      });
+      applyDirectCard(card);
     }
 
     function handleAsyncCard(card) {
@@ -573,6 +616,7 @@ const CB_SEARCH = (() => {
     async function start() {
       blockedSources = await storage.getBlockedSources(siteKey);
       displayMode = await storage.getDisplayMode();
+      if (resolver.canonicalize) sourceAliases = await storage.getSourceAliases(siteKey);
       scan(doc);
 
       const observer = new MutationObserver(() => scan(doc));
@@ -589,6 +633,22 @@ const CB_SEARCH = (() => {
         for (const itemId of sourceIdByItemId.keys()) applyKnown(itemId);
         for (const card of directCardInfo.keys()) applyDirectCard(card);
       });
+
+      // 他端末からの同期、または同一ページ内の別カードのクリックで新しくaliasが判明したら、
+      // 「未確認」のまま表示していたカードへ反映する（このリスナー自体は通信を発生させない）。
+      if (resolver.canonicalize && storage.onSourceAliasesChanged) {
+        storage.onSourceAliasesChanged(siteKey, (next) => {
+          sourceAliases = next;
+          for (const [card, info] of directCardInfo.entries()) {
+            if (info.sourceId !== null) continue;
+            const canonicalId = knownCanonicalId(info.rawSourceId);
+            if (canonicalId) {
+              directCardInfo.set(card, { ...info, sourceId: canonicalId });
+              applyDirectCard(card);
+            }
+          }
+        });
+      }
     }
 
     return { start, scan };

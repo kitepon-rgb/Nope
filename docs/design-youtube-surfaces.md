@@ -62,38 +62,51 @@ UC形式を正本とする正規化を行う。
    - `blockedSources` の正本は **UC ID 1件のみ**。handle→UC 対応は別の alias map として持つ
    - 解決に失敗した場合は **どちらの ID も変更せず**（部分登録禁止）、**登録ボタン上またはカード上へ
      見えるエラーを出す**（console.warn だけでは不十分）
+6. **bellの異議（[51]）・kotoneの監査（[52]）で欠陥確定・修正**: 初回実装は `handleDirectCard`
+   （＝カードをスキャンして表示するだけの経路）で未キャッシュの全handleカードへ無条件に
+   `canonicalize`（fetch）を呼んでいた。実測55件中handle37件の規模で、検索結果を開くだけで
+   最大37通信が飛び、mashiro自身が同じcommitに書いたprivacy.mdの申告
+   （「ユーザーがブロック/解除操作した時のみ」）と実態が食い違う欠陥だった。加えて、alias保存に
+   使った `itemSourceCache` は `chrome.storage.local`（端末間非同期）で、blockedSources
+   （`chrome.storage.sync`）と非対称という指摘も受けた。**§下記のとおり作り直した。**
 
-### 実装（`src/adapters/youtube.js` / `src/content-search.js`）
+### 実装（`src/storage.js` / `src/adapters/youtube.js` / `src/content-search.js`）
 
-- `resolver.canonicalize(rawSourceId)`: UC形式（`UC`始まり）はfetchせずそのまま返す。handle形式は
-  `https://www.youtube.com/${rawSourceId}` をfetchし、応答HTMLの
+- **`resolver.canonicalize(rawSourceId)`**（`src/adapters/youtube.js`）: UC形式（`UC`始まり）は
+  fetchせずそのまま返す。handle形式は `https://www.youtube.com/${rawSourceId}` をfetchし、応答HTMLの
   `<link rel="canonical" href="https://www.youtube.com/channel/(UC...)">` から正本UC IDを取り出す。
-  fetch失敗・非200・canonical link不在は全てthrow（フォールバック禁止）。
-- alias map は新設せず、**既存の `itemSourceCache`（`storage.getCachedSource`/`setCachedSource`、
-  AliExpress等と同じ解決キャッシュ）を `siteKey='youtube'` の名前空間で再利用**する
-  （`getCachedSource('youtube', '@NASA')` → `'UCLA_DiR1FfKNvjuUpBHmylQ'`）。alias自体はブロック状態と
-  無関係な技術キャッシュなので、ブロック解除時に消さない（次回また同じ解決が要る時の再fetchを防ぐ）。
-- `content-search.js` の `handleDirectCard` は、`resolver.canonicalize` があるアダプタでは
-  生IDを直接 `directCardInfo` へ入れず、キャッシュ優先で `canonicalize` を解決してから
-  UC正本IDで `directCardInfo` に登録する。**解決成功時だけ**登録し、**失敗時は`resolutionFailed`
-  フラグを付けて登録**する（`directCardInfo`自体には入れる。次回スキャンでの自動リトライより、
-  常時可視のエラー表示を優先した——§後述）。
-- `applyDirectCard` は `resolutionFailed` の場合、通常のブロック判定・登録ボタンをスキップし、
-  常時可視（hover不要）のエラーバッジ（`.cb-search-register-error`、「⚠ 識別子解決に失敗」）を
-  `#dismissible` へ出す。ブロック/解除操作は一切提供しない（存在しない登録ボタンはクリックできない
-  ＝部分登録の入口が構造的に無い）。
-- 登録ボタンのクリック時、`storage.addBlockedSource`/`removeBlockedSource` は常に
-  `directCardInfo` に入っている**正本UC ID**を使う。生のhandleがblockedSourcesのキーになることはない。
+  fetch失敗・非200・canonical link不在は全てthrow（フォールバック禁止）。**この関数はfetchするので、
+  呼び出しはユーザーのクリック時だけに限定する（下記）。**
+- **alias保存は `chrome.storage.sync` の新規キー `sourceAliases`**（`src/storage.js` の
+  `getSourceAliases`/`setSourceAlias`/`onSourceAliasesChanged`、`blockedSources`と同型・同じ
+  ストレージ領域）。`itemSourceCache`（local、端末固有）は使わない——alias は blockedSources と同じく
+  端末間で共有すべき正規データだから。
+- **スキャン時（`handleDirectCard`）は通信しない。** 既知の `sourceAliases`（`start()`時に読み込み、
+  `onSourceAliasesChanged`で他端末同期・同一ページ内の別カード解決を反映）を参照するだけで、
+  handle形式かつ未知のカードは `sourceId: null`（「まだ確認していない」）のまま `directCardInfo` に入る。
+- **`applyDirectCard` の `sourceId === null` 分岐**: 安全側で「未ブロック」表示にし、**通常の登録ボタン**
+  を出す（エラー表示ではない——ユーザーはまだ何も試みていないので、失敗したかのように見せない）。
+  ボタンには `resolveBeforeToggle` を渡し、**クリック時にだけ** `resolver.canonicalize` を呼ぶ
+  （キャッシュ済みなら呼ばない）。
+- **クリック時の解決失敗**: ブロック状態を一切変更せず（`storage.addBlockedSource`/
+  `removeBlockedSource` を呼ぶ前にthrowで中断）、`onResolutionFailed` でカードを
+  `resolutionFailed: true` へ切り替え、常時可視（hover不要）のエラーバッジ
+  （`.cb-search-register-error`、「⚠ 識別子解決に失敗」）を出す。既存の登録ボタンは隠す
+  （部分登録の入口を残さない）。
+- クリック時の解決成功は `storage.setSourceAlias` で `sourceAliases` へ保存され、以後そのhandleは
+  スキャン時にもfetchなしで即座に正本照合できる。
 
 ### 残る限界（意図的な残余リスク）
 
-- 解決成功後に `itemSourceCache` へキャッシュした値は、YouTube側でチャンネルのhandleが変更されると
-  古くなりうる（handle再割当は稀だが起きうる）。キャッシュは `clearCache`（popupの「キャッシュクリア」
-  ボタン、既存機能）で手動クリアできる——AliExpress等の既存キャッシュと同じ運用。
+- **未知のhandleカードは、実際にブロック済みかどうかスキャン時には分からない**（alias未確認のため
+  「未ブロック」表示になる）。これは「片方だけ再出現する」の別形——ただし旧設計（検知のみ・案A）と
+  違い、**ユーザーがそのカードの登録ボタンを一度でも押せば即座に解決し、以後は再出現しない**。
+  完全に自動で防ぐには全カードへの積極的な解決が要り、それは今回撤回した「表示するだけで通信」と
+  同じ問題を再導入するため、意図的にこの残余リスクを受け入れた。
 - fetchそのものがYouTube側のbot対策等でブロックされる可能性は、AliExpressで実証済みのリスク
   （AGENTS.md参照）。YouTubeの通常チャンネルページ取得がAliExpressと同様の壁に当たるかは
   **実ブラウザでの検証が必要**（本タスクではcurl実測のみ。yt-package-smokeの実Chrome受入で
-  確認すること）。壁に当たった場合は全件が`resolutionFailed`になり、エラーバッジのみが出る
+  確認すること）。壁に当たった場合はクリックした分だけ `resolutionFailed` になり、エラーバッジが出る
   （誤ブロック・部分登録は発生しない——安全側に倒れる設計）。
 
 ---
