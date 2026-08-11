@@ -42,17 +42,22 @@ Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `co
 "permissions": ["storage"],
 "content_scripts": [
   { "matches": ["*://*.aliexpress.com/*"], "js": ["src/mtop-main-relay.js"], "world": "MAIN", "run_at": "document_start" },
-  { "matches": ["*://*.aliexpress.com/*"], "js": ["src/md5.js", "src/storage.js", "src/mtop.js", "src/content-item.js", "src/content-search.js"], "run_at": "document_idle" },
+  { "matches": ["*://*.aliexpress.com/*"], "js": ["src/md5.js", "src/storage.js", "src/mtop.js", "src/content-item.js", "src/content-search.js", "src/content-aliexpress-init.js"], "run_at": "document_idle" },
   { "matches": ["*://search.rakuten.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/rakuten.js"], "run_at": "document_idle" },
   { "matches": ["*://shopping.yahoo.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/yahoo_shopping.js"], "run_at": "document_idle" },
   { "matches": ["*://www.youtube.com/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/youtube.js"], "run_at": "document_idle" },
+  { "matches": ["*://auctions.yahoo.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/yahoo_auction.js"], "run_at": "document_idle" },
+  { "matches": ["*://www.amazon.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/amazon.js"], "run_at": "document_idle" },
   { "matches": ["*://www.youtube.com/watch*"], "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/youtube_watch.js"], "run_at": "document_idle" },
   { "matches": ["*://news.yahoo.co.jp/*"], "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/yahoo_news.js"], "run_at": "document_idle" },
-  { "matches": ["*://www.yahoo.co.jp/*"], "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/yahoo_japan.js"], "run_at": "document_idle" },
-  { "matches": ["*://auctions.yahoo.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/yahoo_auctions.js"], "run_at": "document_idle" },
-  { "matches": ["*://www.amazon.co.jp/*"], "js": ["src/storage.js", "src/content-search.js", "src/adapters/amazon.js"], "run_at": "document_idle" }
+  { "matches": ["*://www.yahoo.co.jp/*"], "js": ["src/storage.js", "src/keyword-filter.js", "src/content-name.js", "src/adapters/yahoo_japan.js"], "run_at": "document_idle" }
 ]
 ```
+
+**`src/content-aliexpress-init.js` について**: 共通エンジン `content-search.js` は AliExpress 以外の
+entry でも読み込まれるため、AliExpress 既定アダプタの起動だけをこの専用 entry が担う。
+共通エンジン末尾で無条件に起動していた実装は、他サイトで意図しない起動を招いたため撤去した
+（`docs/evidence/v7-fix-a-double-start.md`）。
 
 **注意**: `manifest.json` に `host_permissions` フィールドは存在しない。各ドメインは `content_scripts[].matches` としてのみ宣言されている（`host_permissions` の明示追加は t4-mtop で「不要と判明」として見送られた——`docs/evidence/t4-mtop.md` 参照）。Chrome Web Store の権限表示・審査上は `content_scripts.matches` も実質的にホストアクセスとして扱われるため、以下ではこれを「ホストアクセス（content script 経由）」と呼ぶ。
 

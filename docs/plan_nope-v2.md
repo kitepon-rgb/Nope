@@ -86,3 +86,44 @@ popup で「どのサイトの何をブロックしているか」が分かる�
 
 - **ストア提出（r7-submit）**: オーナーの $5 デベロッパー登録待ち。v1.1.0 で先に出すか v2.0.0 を待つかは未裁定
 - **YouTube ホーム画面の対応**: 未実測のため、v1 の設計時に実測してから範囲に入れるか決める
+
+---
+
+## 完了記録（2026-08-11）
+
+**全 11 ToDo が done、`terminal-audit` を review → accept（Lattice seq=23,24）。**
+工程正本は Lattice store。監査記録は `docs/evidence/nope-v2-terminal-audit.md`。
+
+### 配布物
+
+`dist/chromeblocker-v2.0.0.zip` — 隔離展開して実ロードし、対象 8 面でブロック成立を実測
+（`docs/evidence/v8b-package-smoke.md`）。ZIP 内外の SHA-256 一致、`assets/mascot-blocked.png` 同梱確認済み。
+
+| 面 | 判定 |
+| --- | --- |
+| Yahoo!ニュース / Yahoo! JAPAN / YouTube watch（パターンB） | PASS |
+| 楽天市場 / YouTube検索 / Yahoo!ショッピング（パターンA） | PASS |
+| ヤフオク / Amazon（パターンC） | PASS |
+| AliExpress | **未成立**（外部bot遮断） |
+
+### 監査の所見 — done 判定に実物検証が要る
+
+**fixture が green のまま実ブラウザで動かない不具合が 5 件、終盤まで残った。**
+
+| 不具合 | 影響 | 由来 |
+| --- | --- | --- |
+| 共通エンジン末尾の無条件起動 | 他サイトの entry で AliExpress 既定アダプタが二重起動 | v2-refactor |
+| `resolver.type` を見ず `CB_MTOP` を無条件参照 | 楽天・Yahoo!ショッピング・YouTube検索が**カード処理前に全滅** | v3-adapter-id |
+| Yahoo!ショッピングの selector が `[href$="/"]` を要求 | 実 DOM は `/{storeId}/{item}.html`。**ストアリンク180本に対し一致0本** | v3-adapter-id |
+| YouTube watch が `span.ytAttributedStringHost` の index 0 を取得 | 発信元名として**動画タイトルを返していた** | v4-adapter-name |
+| Amazon が seller 不在で例外 | 検索結果の**78%が warn**（Amazon 直販には出品者が存在しない） | v5-adapter-resolve |
+
+原因は共通して「**fixture を実装者が書くので、実 DOM を誤解していれば fixture も同じ誤解を含む**」こと。
+次の plan では adapter の done 判定に実ブラウザ実測を含める。
+
+### 残った未解決
+
+**AliExpress の bot 遮断だけ。** 配布物はカード認識・mtop 発行・失敗 warn まで動くが、
+発信元解決が `FAIL_SYS_USER_VALIDATE / RGV587_ERROR` で外部拒否される。
+自動化ブラウザからの実測なので、**実ユーザーの通常セッションで同じ壁に当たるかは未確認**。
+実装で直る話ではなく、通常プロファイルでの調査が要る。

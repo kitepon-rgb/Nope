@@ -128,7 +128,10 @@ Nope v1.1.0 は AliExpress 専用に実装されている（`content-search.js` 
   resolver: {
     type: 'dom_id',
     getSource(card) {
-      const a = card.querySelector('a[href^="https://store.shopping.yahoo.co.jp/"][href$="/"]');
+      // **末尾スラッシュを要求してはいけない**（2026-08-11 実ブラウザ実測）。
+      // 実 DOM のリンクは `store.shopping.yahoo.co.jp/{storeId}/{item}.html?...` で、
+      // `[href$="/"]` を付けるとストアリンク180本に対し一致0本になり、この面は完全に死ぬ。
+      const a = card.querySelector('a[href^="https://store.shopping.yahoo.co.jp/"]');
       if (!a) return null;
       const m = /store\.shopping\.yahoo\.co\.jp\/([^\/]+)\//.exec(a.href);
       if (!m) return null;
@@ -185,7 +188,9 @@ Nope v1.1.0 は AliExpress 専用に実装されている（`content-search.js` 
   resolver: {
     type: 'dom_name',
     getSource(card) {
-      const span = card.querySelector('span.ytAttributedStringHost');
+      // **index 1 を取る**（2026-08-11 実ブラウザ実測）。実測順は index 0 が動画タイトル、
+      // index 1 がチャンネル名。`querySelector` で先頭を取ると発信元名として動画タイトルを返す。
+      const span = card.querySelectorAll('span.ytAttributedStringHost')[1];
       if (!span) return null;
       const name = span.textContent.trim();
       if (!name) return null;
