@@ -76,6 +76,7 @@ const AMAZON_ADAPTER = {
       minAttempts: 5,
       message: 'amazon: seller解決が全件0件です。seller HTML構造が変わった可能性があります',
     },
+    register: { entityLabel: '出品者' },
   },
 };
 

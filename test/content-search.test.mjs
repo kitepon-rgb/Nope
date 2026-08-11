@@ -433,7 +433,7 @@ test('async_resolve adapterはCB_MTOPなしでresolveSourceを使い結果をキ
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(wrapper.style.display, 'none');
-  assert.deepEqual(cached, [['yahoo_auctions', 'auction123', 'seller123']]);
+  assert.deepEqual(cached, [['yahoo_auctions', 'auction123', 'seller123', '対象出品者']]);
 });
 
 test('scanは未ブロックstoreのカードを表示のままにする', async () => {
@@ -593,7 +593,7 @@ test('async_resolveは1件でもsource解決に成功すればseller不在の集
   await flushQueue();
 
   assert.equal(warnings.length, 0);
-  assert.deepEqual(cachedWrites, [['amazon', 'item-4', 'seller-1']]);
+  assert.deepEqual(cachedWrites, [['amazon', 'item-4', 'seller-1', '販売者']]);
 });
 
 test('async_resolveの本物の失敗はseller不在へ丸めず従来どおり個別warnする', async () => {
@@ -632,9 +632,10 @@ test('dom_id登録UIはadapterの発信元種別を表示し、clickしたIDと�
   let blocked = {};
   const registered = [];
   const removed = [];
+  let blockedChanged = null;
   const storage = {
     getBlockedSources: async () => blocked,
-    onBlockedSourcesChanged: () => {},
+    onBlockedSourcesChanged: (_siteKey, listener) => { blockedChanged = listener; },
     getDisplayMode: async () => 'placeholder',
     onDisplayModeChanged: () => {},
     addBlockedSource: async (siteKey, sourceId, sourceName) => {
@@ -644,6 +645,7 @@ test('dom_id登録UIはadapterの発信元種別を表示し、clickしたIDと�
     removeBlockedSource: async (siteKey, sourceId) => {
       removed.push([siteKey, sourceId]);
       blocked = {};
+      blockedChanged(blocked);
     },
   };
   const adapter = {
@@ -678,12 +680,141 @@ test('dom_id登録UIはadapterの発信元種別を表示し、clickしたIDと�
   assert.ok(wrapper.querySelector('.cb-blocked-placeholder'), 'click直後にplaceholderへ切り替わっていない');
 
   const placeholder = wrapper.querySelector('.cb-blocked-placeholder');
-  const unblock = placeholder.children.find((child) => child.className === 'cb-unblock-button');
+  const unblock = placeholder.children.find((child) => child.tagName === 'button' && child.textContent === 'ブロック解除');
   await unblock.listeners.click({ preventDefault() {}, stopPropagation() {} });
 
   assert.deepEqual(removed, [['rakuten', 'shop123']]);
   assert.equal(wrapper.querySelector('.cb-blocked-placeholder'), null);
   assert.equal(originalChild.style.display, '');
+});
+
+test('async_resolve登録UIは解決したAmazon出品者のID・名称を保存し即時ブロックする', async () => {
+  const search = loadContentSearch({ includeMtop: false });
+  const wrapper = makeFakeWrapper();
+  const originalChild = makeFakeElement('a');
+  wrapper.appendChild(originalChild);
+  const card = { id: 'amazon-marketplace-card' };
+  let blocked = {};
+  const registered = [];
+  const cached = [];
+  const storage = {
+    getBlockedSources: async () => blocked,
+    getCachedSource: async () => null,
+    setCachedSource: async (...args) => { cached.push(args); },
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'placeholder',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async (siteKey, sourceId, sourceName) => {
+      registered.push([siteKey, sourceId, sourceName]);
+      blocked = { [sourceId]: { name: sourceName, addedAt: 1 } };
+    },
+    removeBlockedSource: async () => {},
+  };
+  const adapter = {
+    siteKey: 'amazon',
+    cardSelector: 'div[data-component-type="s-search-result"]',
+    getWrapper: () => wrapper,
+    resolver: {
+      type: 'async_resolve',
+      getItemId: () => 'B0MARKET',
+      resolveSource: async () => ({ sourceId: 'SELLER123', sourceName: '対象出品者' }),
+      register: { entityLabel: '出品者' },
+    },
+  };
+  const doc = Object.assign({ querySelectorAll: () => [card], body: {} }, makeFakeDocument());
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+  await flushQueue();
+
+  const button = wrapper.children.find((child) => child.className === 'cb-search-register-button');
+  assert.ok(button, '出品者の解決後に登録ボタンが生成されていない');
+  assert.equal(button.textContent, '🚫 この出品者をブロック');
+  assert.deepEqual(cached, [['amazon', 'B0MARKET', 'SELLER123', '対象出品者']]);
+
+  await button.listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  assert.deepEqual(registered, [['amazon', 'SELLER123', '対象出品者']]);
+  assert.ok(wrapper.querySelector('.cb-blocked-placeholder'), 'click直後にplaceholderへ切り替わっていない');
+});
+
+test('async_resolve登録UIは名称付きcache命中時に再通信せず正しい出品者名を使う', async () => {
+  const search = loadContentSearch({ includeMtop: false });
+  const wrapper = makeFakeWrapper();
+  const card = { id: 'amazon-cached-card' };
+  let resolveCount = 0;
+  const storage = {
+    getBlockedSources: async () => ({}),
+    getCachedSource: async () => ({ sourceId: 'SELLER456', sourceName: 'キャッシュ済み出品者' }),
+    setCachedSource: async () => {},
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'placeholder',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async () => {},
+    removeBlockedSource: async () => {},
+  };
+  const adapter = {
+    siteKey: 'amazon',
+    cardSelector: '.card',
+    getWrapper: () => wrapper,
+    resolver: {
+      type: 'async_resolve',
+      getItemId: () => 'B0CACHED',
+      resolveSource: async () => { resolveCount += 1; return null; },
+      register: { entityLabel: '出品者' },
+    },
+  };
+  const doc = Object.assign({ querySelectorAll: () => [card], body: {} }, makeFakeDocument());
+
+  await search.init({ document: doc, storage, adapter }).start();
+  await flushQueue();
+
+  const button = wrapper.children.find((child) => child.className === 'cb-search-register-button');
+  assert.ok(button);
+  assert.match(button.title, /キャッシュ済み出品者/);
+  assert.equal(resolveCount, 0);
+});
+
+test('async_resolve登録UIは旧版のID-only cacheを名称付きcacheへ更新してからボタンを出す', async () => {
+  const search = loadContentSearch({ includeMtop: false });
+  const wrapper = makeFakeWrapper();
+  const card = { id: 'amazon-legacy-cache-card' };
+  let resolveCount = 0;
+  const cachedWrites = [];
+  const storage = {
+    getBlockedSources: async () => ({}),
+    getCachedSource: async () => 'SELLER789',
+    setCachedSource: async (...args) => { cachedWrites.push(args); },
+    onBlockedSourcesChanged: () => {},
+    getDisplayMode: async () => 'placeholder',
+    onDisplayModeChanged: () => {},
+    addBlockedSource: async () => {},
+    removeBlockedSource: async () => {},
+  };
+  const adapter = {
+    siteKey: 'amazon',
+    cardSelector: '.card',
+    getWrapper: () => wrapper,
+    resolver: {
+      type: 'async_resolve',
+      getItemId: () => 'B0LEGACY',
+      resolveSource: async () => {
+        resolveCount += 1;
+        return { sourceId: 'SELLER789', sourceName: '更新済み出品者' };
+      },
+      register: { entityLabel: '出品者' },
+    },
+  };
+  const doc = Object.assign({ querySelectorAll: () => [card], body: {} }, makeFakeDocument());
+
+  await search.init({ document: doc, storage, adapter }).start();
+  await flushQueue();
+
+  const button = wrapper.children.find((child) => child.className === 'cb-search-register-button');
+  assert.ok(button);
+  assert.match(button.title, /更新済み出品者/);
+  assert.equal(resolveCount, 1);
+  assert.deepEqual(cachedWrites, [['amazon', 'B0LEGACY', 'SELLER789', '更新済み出品者']]);
 });
 
 test('async_resolve登録UIは発信元不在nullのAmazon直販カードへボタンを出さない', async () => {

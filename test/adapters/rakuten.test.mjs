@@ -21,50 +21,49 @@ function loadAdapter() {
   return captured;
 }
 
-function makeCard(storeHref, storeText = '楽天テスト店') {
+function makeCard(shopId, storeText = '楽天テスト店') {
   return {
+    getAttribute(name) {
+      return name === 'data-shop-id' ? shopId : null;
+    },
     querySelector(selector) {
-      if (selector === 'a[href^="https://www.rakuten.co.jp/"][href$="/"]') {
-        if (!storeHref) return null;
-        return {
-          href: storeHref,
-          textContent: storeText,
-        };
+      if (selector === '.content.merchant' && storeText !== null) {
+        return { textContent: storeText };
       }
       return null;
     },
   };
 }
 
-test('楽天: ショップslugと店舗名を取得できる', () => {
+test('楽天: data-shop-idと店舗名を取得できる', () => {
   const adapter = loadAdapter();
-  const card = makeCard('https://www.rakuten.co.jp/aidort/', '愛度楽天市場店');
+  const card = makeCard('299852', 'スマホメモリ専門スターフォーカス');
   const result = adapter.resolver.getSource(card);
   assert.notEqual(result, null);
-  assert.equal(result.sourceId, 'aidort');
-  assert.equal(result.sourceName, '愛度楽天市場店');
+  assert.equal(result.sourceId, '299852');
+  assert.equal(result.sourceName, 'スマホメモリ専門スターフォーカス');
 });
 
-test('楽天: ストアリンクが無ければnullを返す', () => {
+test('楽天: CPC広告カードも共通のdata-shop-idから取得できる', () => {
+  const adapter = loadAdapter();
+  const card = makeCard('208080', 'マウスコンピューター 楽天市場店');
+  const result = adapter.resolver.getSource(card);
+  assert.equal(result.sourceId, '208080');
+  assert.equal(result.sourceName, 'マウスコンピューター 楽天市場店');
+});
+
+test('楽天: data-shop-idが無ければnullを返す', () => {
   const adapter = loadAdapter();
   const card = makeCard(null);
   const result = adapter.resolver.getSource(card);
   assert.equal(result, null);
 });
 
-test('楽天: URLのパターンにマッチしなければnullを返す', () => {
+test('楽天: 店舗名が無ければdata-shop-idを表示名に使う', () => {
   const adapter = loadAdapter();
-  // href はある（selector条件を通す）が、slug が抜けない形式
-  const card = {
-    querySelector(selector) {
-      if (selector === 'a[href^="https://www.rakuten.co.jp/"][href$="/"]') {
-        return { href: 'https://www.rakuten.co.jp/', textContent: '楽天市場' };
-      }
-      return null;
-    },
-  };
-  const result = adapter.resolver.getSource(card);
-  assert.equal(result, null);
+  const result = adapter.resolver.getSource(makeCard('320091', null));
+  assert.equal(result.sourceId, '320091');
+  assert.equal(result.sourceName, '320091');
 });
 
 test('楽天: siteKeyが正しい', () => {

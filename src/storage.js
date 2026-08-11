@@ -48,9 +48,14 @@ const CB_STORAGE = (() => {
     return itemSourceCache[`${siteKey}:${itemId}`] ?? null;
   }
 
-  async function setCachedSource(siteKey, itemId, sourceId) {
+  async function setCachedSource(siteKey, itemId, sourceId, sourceName) {
     const { itemSourceCache } = await chrome.storage.local.get({ itemSourceCache: {} });
-    itemSourceCache[`${siteKey}:${itemId}`] = sourceId;
+    // 発信元名まで解決できたアダプタ（Amazon等）は、登録ボタンがcache命中時にも
+    // 正しい名称を保存できるようobjectで保持する。従来のID-only cache（AliExpress等）は
+    // stringのまま維持し、既存データとの後方互換を保つ。
+    itemSourceCache[`${siteKey}:${itemId}`] = sourceName
+      ? { sourceId, sourceName }
+      : sourceId;
     // 挿入順 = Object.keys 順を利用して古いものから削る。
     const keys = Object.keys(itemSourceCache);
     if (keys.length > CACHE_LIMIT) {

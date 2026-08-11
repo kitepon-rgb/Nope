@@ -31,6 +31,10 @@ ChromeBlocker 開発中に踏んだコアプロダクト（Lattice・peertable �
   index 1 がチャンネル名**。
 - **ヤフオク**: 検索カードに出品者情報は無く、詳細ページ（`/jp/auction/{id}`）は SSR で
   `fetch()` でも `/seller/{id}` を含む HTML が返る。CORS・bot 遮断なし。
+- **楽天市場**: 検索カード `.dui-card` の `data-shop-id` は通常商品と CPC 広告の両方にある。
+  CPC 広告のショップリンクは `grp*.ias.rakuten.co.jp/redirect_rpp/` へ変換されるため、
+  `www.rakuten.co.jp/{slug}/` のリンクだけを正本にすると先頭広告群を解決できない。
+  発信元IDは `data-shop-id`、表示名は `.content.merchant` を使う（実Chrome実測 2026-08-12）。
 - **AliExpress は自動化ブラウザからは解決不能**（`FAIL_SYS_USER_VALIDATE / RGV587_ERROR`）。
   実ユーザーの通常セッションで同じ壁に当たるかは**未確認**。
 

@@ -39,6 +39,7 @@ const YAHOO_SHOPPING_ADAPTER = {
       return { sourceId, sourceName };
       // 実測例: { sourceId: 'smahoservic', sourceName: 'L&Lスマホサービス' }
     },
+    register: { entityLabel: 'ショップ' },
   },
 };
 

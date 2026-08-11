@@ -151,7 +151,7 @@ const YOUTUBE_ADAPTER = {
     //   一緒に消える欠陥があった（実測: 初期23個→再描画後0個）。document.body直下に1個だけ
     //   生成する共有floating buttonへ変更し、hover/focus中のカードのgetBoundingClientRectへ
     //   position:fixedで追従させる（実装はcontent-search.js側、mode==='floating'で分岐）。
-    register: { mode: 'floating' },
+    register: { mode: 'floating', entityLabel: 'チャンネル' },
   },
 };
 

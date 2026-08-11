@@ -115,6 +115,15 @@ test('getCachedSourceはsiteKeyが異なるキーを区別する', async () => {
   assert.equal(await storage.getCachedSource('amazon', 'item1'), 'seller1');
 });
 
+test('cacheは発信元名がある場合にIDと名称を一緒に保持する', async () => {
+  const mock = chromeMock();
+  const storage = loadStorage(mock);
+  await storage.setCachedSource('amazon', 'B0MARKET', 'SELLER123', '対象出品者');
+  const cached = await storage.getCachedSource('amazon', 'B0MARKET');
+  assert.equal(cached.sourceId, 'SELLER123');
+  assert.equal(cached.sourceName, '対象出品者');
+});
+
 test('onBlockedSourcesChangedはsync変更で発火し解除関数で止まる', async () => {
   const mock = chromeMock();
   const storage = loadStorage(mock);

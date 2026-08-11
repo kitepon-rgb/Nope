@@ -263,14 +263,14 @@ const CB_SEARCH = (() => {
    * docs/design-youtube-surfaces.md §2/§4-A: 部分登録へフォールバックせず、失敗をユーザーへ明示する。
    * @param {any} doc @param {Map<any, any>} badgeByCard @param {any} card @param {any} anchor
    */
-  function ensureResolutionErrorBadge(doc, badgeByCard, card, anchor) {
+  function ensureResolutionErrorBadge(doc, badgeByCard, card, anchor, entityLabel) {
     let badge = badgeByCard.get(card);
     if (badge) return badge;
 
     badge = doc.createElement('span');
     badge.className = RESOLUTION_ERROR_CLASS;
     badge.textContent = '⚠ 識別子解決に失敗';
-    badge.title = 'このチャンネルのブロック操作は利用できません（識別子の解決に失敗しました。ページを再読み込みすると再試行します）';
+    badge.title = `この${entityLabel || 'チャンネル'}のブロック操作は利用できません（識別子の解決に失敗しました。ページを再読み込みすると再試行します）`;
     Object.assign(badge.style, {
       position: 'absolute', top: '6px', right: '6px', zIndex: '2147483646',
       border: '1px solid #b3261e', background: COLOR_WHITE, color: '#b3261e',
@@ -288,13 +288,13 @@ const CB_SEARCH = (() => {
    * 識別子解決に失敗したカードは、ボタンの代わりに常時可視のエラーバッジを出す。
    * @param {{doc: any, buttonByCard: Map<any, any>, errorBadgeByCard: Map<any, any>, card: any,
    *   wrapper: any, resolveAnchor?: (card: any) => any, sourceId: string, sourceName: string,
-   *   siteKey: string, storage: any, blocked: boolean, resolutionFailed?: boolean,
+   *   siteKey: string, storage: any, blocked: boolean, entityLabel?: string, resolutionFailed?: boolean,
    *   resolveBeforeToggle?: Function, onResolutionFailed?: Function, onToggled: Function}} deps
    */
   function applyRegisterButton(deps) {
     const {
       doc, buttonByCard, errorBadgeByCard, card, wrapper, resolveAnchor,
-      sourceId, sourceName, siteKey, storage, blocked, resolutionFailed,
+      sourceId, sourceName, siteKey, storage, blocked, entityLabel = 'チャンネル', resolutionFailed,
       resolveBeforeToggle, onResolutionFailed, onToggled,
     } = deps;
     // アダプタがカード種別に応じたアンカーを自分で判定する（例: YouTubeは検索#dismissible／
@@ -304,7 +304,7 @@ const CB_SEARCH = (() => {
     if (resolutionFailed) {
       const existingButton = buttonByCard.get(card);
       if (existingButton) existingButton.style.display = 'none';
-      ensureResolutionErrorBadge(doc, errorBadgeByCard, card, anchor);
+      ensureResolutionErrorBadge(doc, errorBadgeByCard, card, anchor, entityLabel);
       return;
     }
 
@@ -323,7 +323,7 @@ const CB_SEARCH = (() => {
     // このブロックには常にblocked=falseの時しか到達しないが、CB_NAMEとの実装対称性のため
     // 分岐を残す——2026-08-11実Chrome smokeでtextContent未設定＝空欄ボタンの欠陥が出たため、
     // 「作る時に一度だけ」ではなく「出す時に毎回」設定する形にした）。
-    button.textContent = blocked ? 'ブロック解除' : '🚫 このチャンネルをブロック';
+    button.textContent = blocked ? 'ブロック解除' : `🚫 この${entityLabel}をブロック`;
   }
 
   // ---- floating button方式（bell裁定[107]）: resolver.register.mode === 'floating' のアダプタだけ使う ----
@@ -538,12 +538,12 @@ const CB_SEARCH = (() => {
     if (ctx.resolutionFailed) {
       const label = '識別子解決に失敗しました';
       button.textContent = '⚠ 識別子解決に失敗';
-      button.title = 'このチャンネルのブロック操作は利用できません（識別子の解決に失敗しました。ページを再読み込みすると再試行します）';
+      button.title = `この${ctx.entityLabel || 'チャンネル'}のブロック操作は利用できません（識別子の解決に失敗しました。ページを再読み込みすると再試行します）`;
       if (button.setAttribute) button.setAttribute('aria-label', label);
       button.disabled = true;
     } else {
       const label = ctx.sourceName || ctx.sourceId;
-      button.textContent = ctx.blocked ? 'ブロック解除' : '🚫 このチャンネルをブロック';
+      button.textContent = ctx.blocked ? 'ブロック解除' : `🚫 この${ctx.entityLabel || 'チャンネル'}をブロック`;
       button.title = `${label} のブロックを切り替える`;
       if (button.setAttribute) button.setAttribute('aria-label', `${label} のブロックを切り替える`);
       button.disabled = false;
@@ -770,7 +770,9 @@ const CB_SEARCH = (() => {
     }
 
     const wrapperByItemId = new Map();
+    const cardByItemId = new Map();
     const sourceIdByItemId = new Map();
+    const sourceNameByItemId = new Map();
     const directCardInfo = new Map();
     const registerButtonByCard = new Map();
     const errorBadgeByCard = new Map();
@@ -811,7 +813,7 @@ const CB_SEARCH = (() => {
           if (!source || !source.sourceId) {
             throw new Error(`content-search: resolverがsourceIdを返しませんでした siteKey=${siteKey} itemId=${itemId}`);
           }
-          await storage.setCachedSource(siteKey, itemId, source.sourceId);
+          await storage.setCachedSource(siteKey, itemId, source.sourceId, source.sourceName);
           return source;
         };
       } else {
@@ -844,8 +846,24 @@ const CB_SEARCH = (() => {
 
     function applyKnown(itemId) {
       const sourceId = sourceIdByItemId.get(itemId);
+      const sourceName = sourceNameByItemId.get(itemId) || '';
       const wrapper = wrapperByItemId.get(itemId);
-      if (sourceId && wrapper) applyVisibility(wrapper, isBlocked(sourceId), buildVisibilityOptions(sourceId));
+      const card = cardByItemId.get(itemId);
+      if (!sourceId || !wrapper) return;
+      const blocked = isBlocked(sourceId);
+      applyVisibility(wrapper, blocked, buildVisibilityOptions(sourceId, sourceName));
+      if (resolver.register && card) {
+        applyRegisterButton({
+          doc, buttonByCard: registerButtonByCard, errorBadgeByCard, card, wrapper,
+          resolveAnchor: resolver.register.anchor,
+          sourceId, sourceName, siteKey, storage, blocked,
+          entityLabel: resolver.register.entityLabel,
+          onToggled: async () => {
+            blockedSources = await storage.getBlockedSources(siteKey);
+            applyKnown(itemId);
+          },
+        });
+      }
     }
 
     // 生sourceIdの正本ID（UC形式）を、既知のalias（同期済み）だけから引く。fetchはしない。
@@ -894,6 +912,7 @@ const CB_SEARCH = (() => {
           const ctx = {
             siteKey, storage, sourceId: info.rawSourceId, sourceName: info.sourceName,
             blocked: false, resolutionFailed: true,
+            entityLabel: resolver.register.entityLabel,
           };
           if (isFloatingRegister) {
             applyFloatingRegisterButton(doc, card, info.wrapper, ctx);
@@ -922,6 +941,7 @@ const CB_SEARCH = (() => {
           sourceId: displaySourceId !== null ? displaySourceId : info.rawSourceId,
           sourceName: info.sourceName,
           blocked,
+          entityLabel: resolver.register.entityLabel,
           // ブロック操作をする時だけ、もう一方の形式のaliasを解決してから正本IDで登録する
           // （解除は既知IDだけで完結するので不要——click handler側でブロック時だけ呼ぶ）。
           resolveBeforeToggle: resolver.canonicalize ? async () => {
@@ -996,13 +1016,22 @@ const CB_SEARCH = (() => {
       const itemId = resolver.getItemId(card);
       if (!itemId || wrapperByItemId.has(itemId)) return;
       const wrapper = getWrapper(card);
+      cardByItemId.set(itemId, card);
       wrapperByItemId.set(itemId, wrapper);
 
       storage.getCachedSource(siteKey, itemId).then((cached) => {
         if (cached) {
-          sourceIdByItemId.set(itemId, cached);
-          applyVisibility(wrapper, isBlocked(cached), buildVisibilityOptions(cached));
-          return;
+          const cachedSource = typeof cached === 'string'
+            ? { sourceId: cached, sourceName: '' }
+            : cached;
+          // 旧版のID-only cacheでは登録時に正しい発信元名を保存できない。登録UIを持つ
+          // async adapterだけは一度再解決して、名称を含む新cacheへ更新する。
+          if (!resolver.register || cachedSource.sourceName) {
+            sourceIdByItemId.set(itemId, cachedSource.sourceId);
+            sourceNameByItemId.set(itemId, cachedSource.sourceName || '');
+            applyKnown(itemId);
+            return;
+          }
         }
         queue.enqueue(itemId, (source, err) => {
           if (err) {
@@ -1016,7 +1045,8 @@ const CB_SEARCH = (() => {
           resolvedSourceCount += 1;
           const { sourceId, sourceName } = source;
           sourceIdByItemId.set(itemId, sourceId);
-          applyVisibility(wrapper, isBlocked(sourceId), buildVisibilityOptions(sourceId, sourceName));
+          sourceNameByItemId.set(itemId, sourceName || '');
+          applyKnown(itemId);
         });
       });
     }
