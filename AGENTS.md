@@ -1,8 +1,8 @@
 <!-- このプロジェクトのエージェント指示の正本。CLAUDE.md は本ファイルを import する。 -->
 
-# ChromeBlocker
+# Nope
 
-AliExpress の検索結果から特定ストアの商品を消す Chrome 拡張機能（MV3）。工程正本は Lattice store（`.lattice/todo`、plan `chromeblocker-mvp`）。
+指定した発信元やキーワードのコンテンツを、対応する7サイトの検索結果・一覧から非表示にする Chrome 拡張機能（MV3）。工程正本は Lattice store（`.lattice/todo`、plan `nope-v2` / `chromeblocker-release`）。
 
 ## コアプロダクト修理の裁定（オーナー 2026-08-10）
 

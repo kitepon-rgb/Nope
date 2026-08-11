@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Nope — 見たくないもの見せません",
   "version": "2.0.0",
-  "description": "閲覧中のWebページから、指定した発信元のコンテンツを非表示にするブロッカー。現在はAliExpressの特定ストアに対応。",
+  "description": "指定した発信元やキーワードのコンテンツを閲覧中のWebページから非表示にします。AliExpress・楽天・Amazon・YouTube・Yahoo!など7サイトに対応。",
   "permissions": ["storage"],
   "icons": {
     "16": "icons/icon16.png",

@@ -8,11 +8,11 @@ Chrome Web Store デベロッパーダッシュボードの「Privacy practices�
 
 ## 収集するデータ
 
-Nope — 見たくないもの見せません（以下「本拡張」）は、開発者を含むいかなる相手に対しても、ユーザーのデータを収集・送信しません。
+Nope — 見たくないもの見せません（以下「本拡張」）の開発者は、ユーザーのデータを収集・受信しません。本拡張にアクセス解析・広告・トラッキング用の通信はなく、開発者や第三者が運営するサーバーも使用しません。発信元の識別に必要な場合だけ、閲覧中のサービス自身へページ上の公開識別子を問い合わせます。詳細は「対応サイト自身へのネットワーク通信」を参照してください。
 
 - 個人を特定する情報の収集: なし
 - 閲覧履歴・利用状況の収集: なし
-- 外部サーバー（本拡張の開発者が管理するサーバーを含む）への送信: なし
+- 開発者または第三者が運営するサーバーへの送信: なし
 - 第三者への販売・提供: なし（そもそも収集していないため提供しようがない）
 
 ## 保存するデータとその保存先
@@ -21,29 +21,37 @@ Nope — 見たくないもの見せません（以下「本拡張」）は、�
 
 | データ | 保存先 | 内容 | 同期範囲 |
 |--------|--------|------|----------|
-| ブロック対象ストア一覧 | `chrome.storage.sync`（キー `blockedStores`） | ユーザーが登録した AliExpress ストアの ID・名前・登録日時 | ユーザーの Google アカウントでログインした端末間 |
-| 表示モード設定 | `chrome.storage.sync`（キー `displayMode`、r1-placeholder で追加） | ブロック済み商品を「プレースホルダー表示」「完全非表示」のどちらにするかの選択 | 同上 |
-| 商品→ストア対応キャッシュ | `chrome.storage.local`（キー `productStoreCache`） | AliExpress の商品ID と、その商品が属するストアIDの対応（最大5000件、超過分は古いものから自動削除） | この端末のみ（同期されない） |
+| ブロック対象の発信元一覧 | `chrome.storage.sync`（キー `blockedSources`） | サイト別に登録したストア・出品者・チャンネル・出版社の ID、表示名、登録日時 | ユーザーの Google アカウントでログインした端末間 |
+| ブロック対象のキーワード | `chrome.storage.sync`（キー `blockedKeywords`） | Yahoo ニュース / Yahoo! JAPAN でユーザーが登録したキーワード | 同上 |
+| 表示モード設定 | `chrome.storage.sync`（キー `displayMode`） | ブロック済みカードを「プレースホルダー表示」「完全非表示」のどちらにするかの選択 | 同上 |
+| 発信元の解決キャッシュ | `chrome.storage.local`（キー `itemSourceCache`） | サイトと商品・オークションIDから解決した発信元IDの対応（最大5000件、超過分は古いものから自動削除） | この端末のみ（同期されない） |
 
 `chrome.storage.sync` は Chrome 標準の同期ストレージであり、Google アカウントを介した同期はブラウザ自身が行います。本拡張がこのデータを別途どこかへ送信することはありません。
 
-## AliExpress へのネットワーク通信について
+## 対応サイト自身へのネットワーク通信
 
-本拡張は、商品ページのリンクだけでは対応するストアIDが取得できない場合に、AliExpress 自身の内部API（`mtop.aliexpress.pdp.pc.query`、エンドポイント `https://acs.aliexpress.com/`）へ商品IDを問い合わせます（実装: `src/mtop.js` / `src/mtop-main-relay.js`）。
+検索結果カードだけでは発信元を識別できない次の3サイトで、閲覧中のサービス自身へ公開識別子を問い合わせます。
+
+| サイト | 送信先 | リクエストへ追加する識別子 | 目的 |
+|---|---|---|---|
+| AliExpress | `https://acs.aliexpress.com/` の内部API `mtop.aliexpress.pdp.pc.query` | 商品ID | ストアIDの解決 |
+| ヤフオク | `https://auctions.yahoo.co.jp/jp/auction/{オークションID}` | URLに含まれるオークションID | 詳細ページから出品者IDを解決 |
+| Amazon.co.jp | `https://www.amazon.co.jp/dp/{ASIN}` | URLに含まれるASIN | 詳細ページから販売者IDを解決 |
 
 この通信について、誤解を避けるため明確にしておきます。
 
-- **送信先は AliExpress 自身のドメイン（`acs.aliexpress.com`）のみ**です。本拡張の開発者のサーバーや、AliExpress・開発者以外の第三者への送信は一切行いません。
-- **送信する内容は商品IDのみ**です。ユーザーの氏名・メールアドレス・住所・支払い情報などを送信することはありません。
-- この通信は、ユーザーが AliExpress 自身のサイトを閲覧している最中に、そのページのコンテキスト内（`content_scripts[].world:"MAIN"`）で行われます。技術的にはページ自身が発行する通信と同じ扱いであり、本拡張が新たな宛先へデータを持ち出すものではありません。
-- レスポンス（ストアID）は上記の `productStoreCache` にのみ保存され、他のどこにも転送されません。
+- **送信先は閲覧中のサービス自身のドメインだけ**です。本拡張の開発者や、閲覧中のサービスと無関係な第三者のサーバーへ送信しません。
+- **本拡張がリクエストへ追加する識別子は、表示中のページに含まれる公開の商品ID・オークションIDだけ**です。本拡張が氏名・メールアドレス・住所・支払い情報を読み取って送信することはありません。通常のページアクセスと同様に、ブラウザが対象サービス自身の Cookie や標準ヘッダーを自動付与する場合があります。
+- AliExpress の問い合わせはページのコンテキスト内（`content_scripts[].world:"MAIN"`）で署名付きJSONPとして行い、ヤフオクと Amazon.co.jp は同一オリジンの商品詳細ページを取得します。
+- 解決した発信元IDは上記の `itemSourceCache` にのみ保存され、他の宛先へ転送されません。
+- 楽天市場・Yahoo!ショッピング・YouTube・Yahoo ニュース・Yahoo! JAPAN は表示中の DOM だけで判定し、発信元解決のための追加通信を行いません。
 
 ## Chrome Web Store「Privacy practices」タブでの申告方針
 
 ダッシュボードの申告項目と、この文書の内容が一致するようにする。
 
 - **Single purpose**: `docs/store/listing.md` の宣言文をそのまま使用
-- **Permission justification**: `storage` と `*://*.aliexpress.com/*`（content script によるホストアクセス）について、`docs/store/listing.md` の該当節をそのまま使用
+- **Permission justification**: `storage` と `content_scripts[].matches` に宣言した全ホストについて、`docs/store/listing.md` の該当節をそのまま使用
 - **Data usage の各チェック項目**: 以下はすべて「該当しない（収集しない）」として申告する
   - Personally identifiable information
   - Health information
@@ -54,8 +62,9 @@ Nope — 見たくないもの見せません（以下「本拡張」）は、�
   - Web history
   - User activity（キー操作・クリック等の収集は行っていない。ボタンクリックはローカルの `chrome.storage` 更新のトリガーとしてのみ使われ、どこにも送信・記録されない）
 - **"I do not sell or transfer user data..." 等の certification 項目**: すべて事実として該当するのでチェックする
-- **"This item handles user data" 系の宣言**: 上記の通り外部への送信・収集が存在しないため、"Does not collect user data" の立場で申告する。mtop API 通信については審査員向けの補足として、上記「AliExpress へのネットワーク通信について」の説明を Permission justification 側に含めてある（`listing.md` 参照）
+- **"This item handles user data" 系の宣言**: 開発者がユーザーデータを収集・受信しないため、"Does not collect user data" の立場で申告する。対応サイト自身への発信元解決通信は、上記の送信先・識別子・目的を Permission justification 側にも記載する（`listing.md` 参照）
 
 ## 変更履歴
 
 - 2026-08-10: r6-store-listing にて新規作成
+- 2026-08-11: v2.0.0 の7サイト対応、現行ストレージキー、同一サイトへの発信元解決通信へ更新
