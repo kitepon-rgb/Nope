@@ -221,27 +221,34 @@ const CB_SEARCH = (() => {
   function init(deps) {
     const doc = (deps && deps.document) || document;
     const storage = (deps && deps.storage) || CB_STORAGE;
-    const mtop = (deps && deps.mtop) || CB_MTOP;
     const adapter = (deps && deps.adapter) || ALIEXPRESS_ADAPTER;
     const { siteKey, cardSelector, getWrapper, resolver } = adapter;
+    if (!resolver || !['dom_id', 'async_resolve'].includes(resolver.type)) {
+      throw new Error(`content-search: 未対応のresolver.typeです siteKey=${siteKey} type=${resolver && resolver.type}`);
+    }
 
     const wrapperByItemId = new Map();
     const sourceIdByItemId = new Map();
+    const directCardInfo = new Map();
     let blockedSources = {};
     let displayMode = DEFAULT_MODE;
 
-    const queue = createResolveQueue({ resolveStoreId: (itemId) => mtop.resolveStoreId(itemId) });
+    let queue = null;
+    if (resolver.type === 'async_resolve') {
+      const mtop = (deps && deps.mtop) || CB_MTOP;
+      queue = createResolveQueue({ resolveStoreId: (itemId) => mtop.resolveStoreId(itemId) });
+    }
 
     function isBlocked(sourceId) {
       return !!blockedSources[sourceId];
     }
 
-    /** @param {string} sourceId @returns {{mode: string, storeName: string, onUnblock: Function}} */
-    function buildVisibilityOptions(sourceId) {
+    /** @param {string} sourceId @param {string} [sourceName] @returns {{mode: string, storeName: string, onUnblock: Function}} */
+    function buildVisibilityOptions(sourceId, sourceName) {
       const info = blockedSources[sourceId];
       return {
         mode: displayMode,
-        storeName: info ? info.name : '',
+        storeName: info ? info.name : (sourceName || ''),
         onUnblock: () => storage.removeBlockedSource(siteKey, sourceId),
       };
     }
@@ -252,7 +259,27 @@ const CB_SEARCH = (() => {
       if (sourceId && wrapper) applyVisibility(wrapper, isBlocked(sourceId), buildVisibilityOptions(sourceId));
     }
 
-    function handleCard(card) {
+    function applyDirectCard(card) {
+      const info = directCardInfo.get(card);
+      if (!info) return;
+      applyVisibility(
+        info.wrapper,
+        isBlocked(info.sourceId),
+        buildVisibilityOptions(info.sourceId, info.sourceName),
+      );
+    }
+
+    function handleDirectCard(card) {
+      if (directCardInfo.has(card)) return;
+      const source = resolver.getSource(card);
+      if (!source) return;
+      const wrapper = getWrapper(card);
+      if (!wrapper) return;
+      directCardInfo.set(card, { ...source, wrapper });
+      applyDirectCard(card);
+    }
+
+    function handleAsyncCard(card) {
       const itemId = resolver.getItemId(card);
       if (!itemId || wrapperByItemId.has(itemId)) return;
       const wrapper = getWrapper(card);
@@ -276,6 +303,7 @@ const CB_SEARCH = (() => {
     }
 
     function scan(root) {
+      const handleCard = resolver.type === 'dom_id' ? handleDirectCard : handleAsyncCard;
       for (const card of root.querySelectorAll(cardSelector)) handleCard(card);
     }
 
@@ -290,11 +318,13 @@ const CB_SEARCH = (() => {
       storage.onBlockedSourcesChanged(siteKey, (next) => {
         blockedSources = next;
         for (const itemId of sourceIdByItemId.keys()) applyKnown(itemId);
+        for (const card of directCardInfo.keys()) applyDirectCard(card);
       });
 
       storage.onDisplayModeChanged((next) => {
         displayMode = next;
         for (const itemId of sourceIdByItemId.keys()) applyKnown(itemId);
+        for (const card of directCardInfo.keys()) applyDirectCard(card);
       });
     }
 

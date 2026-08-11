@@ -63,8 +63,8 @@ function makeFakeLink(href, wrapper) {
   };
 }
 
-function loadContentSearch() {
-  const context = vm.createContext({
+function loadContentSearch({ includeMtop = true } = {}) {
+  const globals = {
     document: Object.assign({ querySelectorAll: () => [], body: {} }, makeFakeDocument()),
     MutationObserver: FakeMutationObserver,
     setTimeout: (fn) => { fn(); return 0; },
@@ -78,8 +78,11 @@ function loadContentSearch() {
       getDisplayMode: async () => 'placeholder',
       onDisplayModeChanged: () => {},
     },
-    CB_MTOP: { resolveStoreId: async () => { throw new Error('not stubbed'); } },
-  });
+  };
+  if (includeMtop) {
+    globals.CB_MTOP = { resolveStoreId: async () => { throw new Error('not stubbed'); } };
+  }
+  const context = vm.createContext(globals);
   vm.runInContext(readFileSync(SRC, 'utf8'), context);
   return vm.runInContext('CB_SEARCH', context);
 }
@@ -342,6 +345,37 @@ test('scanはキャッシュ命中カードを即ブロック判定して非表�
   await controller.start();
   await new Promise((r) => setImmediate(r));
   assert.equal(wrapper.style.display, 'none');
+});
+
+test('dom_id adapterはCB_MTOPなしでgetSourceの結果をブロック判定する', async () => {
+  const search = loadContentSearch({ includeMtop: false });
+  const wrapper = makeFakeWrapper();
+  const card = { id: 'card-1' };
+  let changeListener = null;
+  const storage = {
+    getBlockedSources: async () => ({ shop123: { name: '対象店舗', addedAt: 0 } }),
+    onBlockedSourcesChanged: (_siteKey, fn) => { changeListener = fn; },
+    getDisplayMode: async () => 'collapse',
+    onDisplayModeChanged: () => {},
+    removeBlockedSource: async () => {},
+  };
+  const adapter = {
+    siteKey: 'rakuten',
+    cardSelector: '.card',
+    getWrapper: () => wrapper,
+    resolver: {
+      type: 'dom_id',
+      getSource: () => ({ sourceId: 'shop123', sourceName: '対象店舗' }),
+    },
+  };
+  const doc = { querySelectorAll: () => [card], body: {} };
+
+  const controller = search.init({ document: doc, storage, adapter });
+  await controller.start();
+
+  assert.equal(wrapper.style.display, 'none');
+  changeListener({});
+  assert.equal(wrapper.style.display, '');
 });
 
 test('scanは未ブロックstoreのカードを表示のままにする', async () => {
