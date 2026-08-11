@@ -8,6 +8,8 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const SRC = path.join(import.meta.dirname, '..', 'src', 'content-search.js');
+const ALIEXPRESS_INIT_SRC = path.join(import.meta.dirname, '..', 'src', 'content-aliexpress-init.js');
+const MANIFEST = path.join(import.meta.dirname, '..', 'manifest.json');
 
 class FakeMutationObserver {
   observe() {}
@@ -81,6 +83,61 @@ function loadContentSearch() {
   vm.runInContext(readFileSync(SRC, 'utf8'), context);
   return vm.runInContext('CB_SEARCH', context);
 }
+
+test('content-search.jsは共通エンジンの読み込みだけでは自動起動しない', () => {
+  let blockedSourcesReads = 0;
+  const context = vm.createContext({
+    document: Object.assign({ querySelectorAll: () => [], body: {} }, makeFakeDocument()),
+    MutationObserver: FakeMutationObserver,
+    setTimeout: (fn) => { fn(); return 0; },
+    clearTimeout: () => {},
+    console,
+    chrome: { runtime: { getURL: (assetPath) => `chrome-extension://test-id/${assetPath}` } },
+    CB_STORAGE: {
+      getBlockedSources: async () => { blockedSourcesReads += 1; return {}; },
+      getCachedSource: async () => null,
+      onBlockedSourcesChanged: () => {},
+      getDisplayMode: async () => 'placeholder',
+      onDisplayModeChanged: () => {},
+    },
+    CB_MTOP: { resolveStoreId: async () => null },
+  });
+
+  vm.runInContext(readFileSync(SRC, 'utf8'), context);
+
+  assert.equal(blockedSourcesReads, 0);
+  assert.equal(vm.runInContext('typeof CB_SEARCH', context), 'object');
+});
+
+test('AliExpress専用entryは既定adapterを一度だけ起動する', () => {
+  let initCalls = 0;
+  let startCalls = 0;
+  const context = vm.createContext({
+    CB_SEARCH: {
+      init(options) {
+        initCalls += 1;
+        assert.equal(options, undefined);
+        return { start() { startCalls += 1; } };
+      },
+    },
+  });
+
+  vm.runInContext(readFileSync(ALIEXPRESS_INIT_SRC, 'utf8'), context);
+
+  assert.equal(initCalls, 1);
+  assert.equal(startCalls, 1);
+});
+
+test('manifestはAliExpress専用entryをcontent-search.jsの後に読み込む', () => {
+  const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
+  const entry = manifest.content_scripts.find((item) => item.js.includes('src/content-search.js'));
+
+  assert.ok(entry);
+  assert.deepEqual(
+    entry.js.slice(-2),
+    ['src/content-search.js', 'src/content-aliexpress-init.js'],
+  );
+});
 
 test('extractProductIdは/item/<id>.htmlからproductIdを取り出す', () => {
   const search = loadContentSearch();

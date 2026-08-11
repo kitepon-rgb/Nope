@@ -42,7 +42,7 @@
     },
     {
       "matches": ["*://*.aliexpress.com/*"],
-      "js": ["src/md5.js", "src/storage.js", "src/mtop.js", "src/content-item.js", "src/content-search.js"],
+      "js": ["src/md5.js", "src/storage.js", "src/mtop.js", "src/content-item.js", "src/content-search.js", "src/content-aliexpress-init.js"],
       "run_at": "document_idle"
     },
     {

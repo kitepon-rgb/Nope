@@ -303,5 +303,3 @@ const CB_SEARCH = (() => {
 
   return { extractProductId, findWrapper, applyVisibility, createResolveQueue, init };
 })();
-
-CB_SEARCH.init().start();
