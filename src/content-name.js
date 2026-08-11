@@ -1,5 +1,5 @@
 // パターンB（表示名のみ）コンテンツスクリプトエンジン。
-// Yahoo ニュース / Yahoo! JAPAN / YouTube 視聴ページ関連動画 の3面で使用。
+// Yahoo ニュース / Yahoo! JAPAN の2面で使用。
 // 依存: CB_STORAGE, CB_KEYWORD_FILTER（連結読み込み順は v8a-manifest が管理する）
 // パターンC（非同期解決）エンジン content-search.js とは別ファイル。
 // 理由: パターンBは同期解決なので async queue が不要。面ごとに別 content_scripts エントリで動く。
