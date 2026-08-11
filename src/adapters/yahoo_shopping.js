@@ -27,9 +27,9 @@ const YAHOO_SHOPPING_ADAPTER = {
      * @returns {{ sourceId: string, sourceName: string } | null}
      */
     getSource(card) {
-      // 有機検索カードには store.shopping.yahoo.co.jp/{storeId}/ の直リンクがある。
+      // 有機検索カードには store.shopping.yahoo.co.jp/{storeId}/{item}.html への直リンクがある。
       // 広告カードは shopping-item-reach.yahoo.co.jp/v1/click 経由のみで直リンクなし → null を返す。
-      const a = card.querySelector('a[href^="https://store.shopping.yahoo.co.jp/"][href$="/"]');
+      const a = card.querySelector('a[href^="https://store.shopping.yahoo.co.jp/"]');
       if (!a) return null;
       const m = /store\.shopping\.yahoo\.co\.jp\/([^\/]+)\//.exec(a.href);
       if (!m) return null;

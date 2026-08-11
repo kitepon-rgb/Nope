@@ -24,7 +24,7 @@ function loadAdapter() {
 function makeCard(storeHref, storeText = 'テストストア') {
   return {
     querySelector(selector) {
-      if (selector === 'a[href^="https://store.shopping.yahoo.co.jp/"][href$="/"]') {
+      if (selector === 'a[href^="https://store.shopping.yahoo.co.jp/"]') {
         if (!storeHref) return null;
         return {
           href: storeHref,
@@ -38,7 +38,10 @@ function makeCard(storeHref, storeText = 'テストストア') {
 
 test('Yahoo!ショッピング: ストアIDと店舗名を取得できる', () => {
   const adapter = loadAdapter();
-  const card = makeCard('https://store.shopping.yahoo.co.jp/smahoservic/', 'L&Lスマホサービス');
+  const card = makeCard(
+    'https://store.shopping.yahoo.co.jp/smahoservic/lz-70512.html?sc_i=shopping-pc-web-result-item',
+    'L&Lスマホサービス',
+  );
   const result = adapter.resolver.getSource(card);
   assert.notEqual(result, null);
   assert.equal(result.sourceId, 'smahoservic');

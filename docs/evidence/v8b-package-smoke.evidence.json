@@ -1,0 +1,9 @@
+{
+  "evidence_id": "v8b-package-smoke-2026-08-11",
+  "repo_id": "self",
+  "path": "docs/evidence/v8b-package-smoke.md",
+  "git_blob_oid": "9608d1be66ef10abece633a686495475e01712e6",
+  "content_digest": "eb525e4a1e5c158610197ae7ec09bc4a491a38b4f3325f24288facd9c441a2f2",
+  "media_type": "text/markdown",
+  "anchor_digest": null
+}
