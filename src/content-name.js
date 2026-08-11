@@ -15,7 +15,7 @@ const CB_NAME = (() => {
   const TOAST_CLASS = 'cb-toast';
   const TOAST_DURATION_MS = 2000;
   const MASCOT_IMAGE_PATH = 'assets/mascot-blocked.png';
-  const MASCOT_DISPLAY_SIZE = 120;
+  const MASCOT_DISPLAY_SIZE = 64;
 
   // kitepon.dev ブランド正典（color-system.md）。content-search.js と同値を維持すること。
   const COLOR_ORANGE = '#ef8d32';
@@ -32,9 +32,23 @@ const CB_NAME = (() => {
   function hideOriginalChildren(wrapper) {
     if (originalChildStateByWrapper.has(wrapper)) return;
     const children = Array.from(wrapper.children || []);
-    const state = children.map((child) => ({ child, display: child.style ? child.style.display : '' }));
-    originalChildStateByWrapper.set(wrapper, state);
-    for (const { child } of state) {
+    const childStates = children.map((child) => ({ child, display: child.style ? child.style.display : '' }));
+    const rectHeight = typeof wrapper.getBoundingClientRect === 'function'
+      ? wrapper.getBoundingClientRect().height
+      : 0;
+    const measuredHeight = rectHeight || wrapper.offsetHeight || 0;
+    originalChildStateByWrapper.set(wrapper, {
+      childStates,
+      height: wrapper.style.height || '',
+      boxSizing: wrapper.style.boxSizing || '',
+      overflow: wrapper.style.overflow || '',
+    });
+    if (measuredHeight > 0) {
+      wrapper.style.height = `${Math.round(measuredHeight)}px`;
+      wrapper.style.boxSizing = 'border-box';
+      wrapper.style.overflow = 'hidden';
+    }
+    for (const { child } of childStates) {
       if (child.style) child.style.display = 'none';
     }
   }
@@ -42,18 +56,23 @@ const CB_NAME = (() => {
   function restoreOriginalChildren(wrapper) {
     const state = originalChildStateByWrapper.get(wrapper);
     if (!state) return;
-    for (const { child, display } of state) {
+    for (const { child, display } of state.childStates) {
       if (child.style) child.style.display = display;
     }
+    wrapper.style.height = state.height;
+    wrapper.style.boxSizing = state.boxSizing;
+    wrapper.style.overflow = state.overflow;
     originalChildStateByWrapper.delete(wrapper);
   }
 
-  function buildPlaceholderElement(sourceName, onUnblock) {
+  function buildPlaceholderElement(reason, onUnblock) {
+    const reasonType = reason && reason.type === 'keyword' ? 'keyword' : 'source';
+    const reasonValue = reason && typeof reason === 'object' ? reason.value : reason;
     const el = document.createElement('div');
     el.className = PLACEHOLDER_CLASS;
     Object.assign(el.style, {
-      minHeight: '80px', display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center', padding: '8px', textAlign: 'center',
+      width: '100%', height: '100%', minHeight: '48px', display: 'flex', flexDirection: 'row',
+      gap: '12px', alignItems: 'center', justifyContent: 'center', padding: '8px', textAlign: 'left',
       backgroundColor: COLOR_WHITE, border: `1px solid ${COLOR_ORANGE}`,
       borderRadius: '8px', boxSizing: 'border-box',
     });
@@ -64,46 +83,68 @@ const CB_NAME = (() => {
     art.height = MASCOT_DISPLAY_SIZE;
     art.alt = '';
     art.ariaHidden = 'true';
+    Object.assign(art.style, {
+      width: `${MASCOT_DISPLAY_SIZE}px`, height: `${MASCOT_DISPLAY_SIZE}px`,
+      maxWidth: '24%', maxHeight: 'calc(100% - 8px)', objectFit: 'contain', flexShrink: '1',
+    });
     el.appendChild(art);
+
+    const content = document.createElement('div');
+    Object.assign(content.style, {
+      display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+      justifyContent: 'center', minWidth: '0',
+    });
+    el.appendChild(content);
 
     const label = document.createElement('p');
     label.textContent = 'BLOCKED';
     Object.assign(label.style, {
       fontSize: '10px', letterSpacing: '0.14em', color: COLOR_ORANGE_DEEP,
-      margin: '8px 0 0', fontWeight: 'bold',
+      margin: '0', fontWeight: 'bold',
     });
-    el.appendChild(label);
+    content.appendChild(label);
 
-    if (sourceName) {
-      const nameEl = document.createElement('p');
-      nameEl.textContent = sourceName;
-      Object.assign(nameEl.style, { color: COLOR_INK, margin: '4px 0 0', fontSize: '12px' });
-      el.appendChild(nameEl);
+    if (reasonValue) {
+      const reasonEl = document.createElement('p');
+      reasonEl.textContent = reasonType === 'keyword'
+        ? `キーワード：「${reasonValue}」`
+        : `発信元：${reasonValue}`;
+      Object.assign(reasonEl.style, { color: COLOR_INK, margin: '2px 0 0', fontSize: '12px' });
+      content.appendChild(reasonEl);
     }
 
     const unblockBtn = document.createElement('button');
     unblockBtn.type = 'button';
-    unblockBtn.textContent = 'ブロック解除';
+    unblockBtn.textContent = reasonType === 'keyword' ? 'キーワード解除' : '発信元ブロック解除';
     Object.assign(unblockBtn.style, {
-      marginTop: '8px', border: `1px solid ${COLOR_ORANGE}`, color: COLOR_ORANGE_DEEP,
+      marginTop: '4px', border: `1px solid ${COLOR_ORANGE}`, color: COLOR_ORANGE_DEEP,
       backgroundColor: 'transparent', borderRadius: '4px', padding: '4px 10px', cursor: 'pointer',
     });
-    unblockBtn.addEventListener('click', (event) => {
+    unblockBtn.addEventListener('click', async (event) => {
       if (event) {
         if (event.preventDefault) event.preventDefault();
         if (event.stopPropagation) event.stopPropagation();
       }
-      if (onUnblock) onUnblock();
+      if (!onUnblock) return;
+      unblockBtn.disabled = true;
+      try {
+        await onUnblock();
+      } catch (error) {
+        console.warn(`content-name: ${reasonType}ブロック解除に失敗しました value=${reasonValue}`, error);
+        unblockBtn.textContent = '解除に失敗しました';
+        unblockBtn.disabled = false;
+      }
     });
-    el.appendChild(unblockBtn);
+    content.appendChild(unblockBtn);
 
     return el;
   }
 
-  function insertPlaceholder(wrapper, sourceName, onUnblock) {
-    if (wrapper.querySelector && wrapper.querySelector(`.${PLACEHOLDER_CLASS}`)) return;
+  function insertPlaceholder(wrapper, reason, onUnblock) {
+    const existing = wrapper.querySelector && wrapper.querySelector(`.${PLACEHOLDER_CLASS}`);
+    if (existing && existing.remove) existing.remove();
     hideOriginalChildren(wrapper);
-    const placeholder = buildPlaceholderElement(sourceName, onUnblock);
+    const placeholder = buildPlaceholderElement(reason, onUnblock);
     if (wrapper.appendChild) wrapper.appendChild(placeholder);
   }
 
@@ -116,7 +157,7 @@ const CB_NAME = (() => {
   /**
    * @param {any} wrapper
    * @param {boolean} blocked
-   * @param {{mode?: string, sourceName?: string, onUnblock?: Function}} [options]
+   * @param {{mode?: string, reason?: {type: 'source'|'keyword', value: string}, sourceName?: string, onUnblock?: Function}} [options]
    */
   function applyVisibility(wrapper, blocked, options) {
     if (!wrapper || !wrapper.style) return;
@@ -131,7 +172,7 @@ const CB_NAME = (() => {
 
     wrapper.style.display = '';
     if (blocked) {
-      insertPlaceholder(wrapper, opts.sourceName, opts.onUnblock);
+      insertPlaceholder(wrapper, opts.reason || opts.sourceName, opts.onUnblock);
     } else {
       removePlaceholder(wrapper);
     }
@@ -161,11 +202,11 @@ const CB_NAME = (() => {
       return !!blockedSources[sourceName];
     }
 
-    function isCardKeywordBlocked(card) {
-      if (!blockedKeywords.length || !getTitle) return false;
+    function findMatchingKeyword(card) {
+      if (!blockedKeywords.length || !getTitle) return null;
       const title = getTitle(card);
-      if (!title) return false;
-      return keywordFilter.matchesAny(title, blockedKeywords);
+      if (!title) return null;
+      return blockedKeywords.find((keyword) => keywordFilter.matchesAny(title, [keyword])) || null;
     }
 
     function showToast(message) {
@@ -246,11 +287,22 @@ const CB_NAME = (() => {
       button.textContent = isSourceBlocked(sourceName) ? 'ブロック解除' : '🚫 発信元をブロック';
     }
 
-    function buildOptions(sourceName) {
+    function buildOptions(reason) {
       return {
         mode: displayMode,
-        sourceName,
-        onUnblock: () => storage.removeBlockedSource(siteKey, sourceName),
+        reason,
+        onUnblock: async () => {
+          if (reason.type === 'keyword') {
+            await storage.removeBlockedKeyword(siteKey, reason.value);
+            blockedKeywords = await storage.getBlockedKeywords(siteKey);
+            showToast(`キーワード「${reason.value}」を解除しました`);
+          } else {
+            await storage.removeBlockedSource(siteKey, reason.value);
+            blockedSources = await storage.getBlockedSources(siteKey);
+            showToast(`${reason.value} のブロックを解除しました`);
+          }
+          for (const knownCard of processedCards) applyCardVisibility(knownCard);
+        },
       };
     }
 
@@ -258,8 +310,15 @@ const CB_NAME = (() => {
       const info = cardInfo.get(card);
       if (!info) return;
       const { sourceName, wrapper } = info;
-      const blocked = isSourceBlocked(sourceName) || isCardKeywordBlocked(card);
-      applyVisibility(wrapper, blocked, buildOptions(sourceName));
+      const sourceBlocked = isSourceBlocked(sourceName);
+      const matchedKeyword = findMatchingKeyword(card);
+      const reason = sourceBlocked
+        ? { type: 'source', value: sourceName }
+        : matchedKeyword
+          ? { type: 'keyword', value: matchedKeyword }
+          : null;
+      const blocked = !!reason;
+      applyVisibility(wrapper, blocked, reason ? buildOptions(reason) : { mode: displayMode });
       applySourceButton(card, sourceName, wrapper, blocked);
     }
 

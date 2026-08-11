@@ -36,6 +36,15 @@ function makeElement(tagName) {
   return element;
 }
 
+function findDescendant(root, predicate) {
+  if (predicate(root)) return root;
+  for (const child of root.children || []) {
+    const found = findDescendant(child, predicate);
+    if (found) return found;
+  }
+  return null;
+}
+
 function loadContentName(cards, storage) {
   const body = makeElement('body');
   const document = {
@@ -56,12 +65,16 @@ function loadContentName(cards, storage) {
   return { contentName: vm.runInContext('CB_NAME', context), document };
 }
 
-function makeStorage(initial = {}) {
+function makeStorage(initial = {}, initialKeywords = []) {
   let blocked = { ...initial };
+  let keywords = [...initialKeywords];
   let sourceListener = null;
+  let keywordListener = null;
   const additions = [];
+  const keywordRemovals = [];
   return {
     additions,
+    keywordRemovals,
     setBlocked(next) { blocked = { ...next }; },
     emitBlocked(next) { blocked = { ...next }; sourceListener(blocked); },
     async getBlockedSources() { return blocked; },
@@ -75,10 +88,15 @@ function makeStorage(initial = {}) {
       delete next[sourceId];
       blocked = next;
     },
-    async getBlockedKeywords() { return []; },
+    async getBlockedKeywords() { return [...keywords]; },
+    async removeBlockedKeyword(siteKey, keyword) {
+      keywordRemovals.push([siteKey, keyword]);
+      keywords = keywords.filter((item) => item !== keyword);
+    },
     async getDisplayMode() { return 'placeholder'; },
     onBlockedSourcesChanged(_siteKey, handler) { sourceListener = handler; },
-    onBlockedKeywordsChanged() {},
+    onBlockedKeywordsChanged(_siteKey, handler) { keywordListener = handler; },
+    emitKeywords(next) { keywords = [...next]; keywordListener(keywords); },
     onDisplayModeChanged() {},
   };
 }
@@ -135,7 +153,10 @@ test('Pattern BボタンはnameOnly=trueで登録し、toast後にplaceholderだ
   assert.deepEqual(storage.additions, [['yahoo_news', '西スポWEB OTTO!', '西スポWEB OTTO!', true]]);
   assert.equal(prevented, true);
   assert.equal(stopped, true);
-  assert.ok(card.querySelector('.cb-blocked-placeholder'));
+  const placeholder = card.querySelector('.cb-blocked-placeholder');
+  assert.ok(placeholder);
+  assert.ok(findDescendant(placeholder, (el) => el.textContent === '発信元：西スポWEB OTTO!'));
+  assert.ok(findDescendant(placeholder, (el) => el.textContent === '発信元ブロック解除'));
   assert.equal(button.style.display, 'none');
   assert.ok(document.body.children.some((child) => child.className === 'cb-toast'
     && child.textContent.includes('ブロックしました')));
@@ -154,5 +175,38 @@ test('Pattern Bのブロック済みカードは注入ボタンを出さず、�
 
   storage.emitBlocked({});
   assert.equal(card.querySelector('.cb-blocked-placeholder'), null);
+  assert.ok(card.querySelector('.cb-source-block-button'));
+});
+
+test('キーワード一致は該当語を理由表示し、解除ボタンでそのキーワードを削除する', async () => {
+  const card = makeElement('article');
+  card.getBoundingClientRect = () => ({ height: 184 });
+  const names = new Map([[card, '日刊スポーツ']]);
+  const storage = makeStorage({}, ['玉川徹']);
+  const adapter = {
+    ...adapterFor(names),
+    getTitle: () => '玉川徹氏が番組でコメント',
+  };
+  const keywordFilter = {
+    matchesAny: (text, keywords) => keywords.some((keyword) => text.includes(keyword)),
+  };
+  const { contentName } = loadContentName([card], storage);
+
+  await contentName.init({ storage, keywordFilter, adapter }).start();
+
+  const placeholder = card.querySelector('.cb-blocked-placeholder');
+  assert.ok(placeholder);
+  assert.equal(card.style.height, '184px');
+  assert.equal(placeholder.style.height, '100%');
+  assert.ok(findDescendant(placeholder, (el) => el.textContent === 'キーワード：「玉川徹」'));
+  assert.equal(findDescendant(placeholder, (el) => el.textContent === '発信元：日刊スポーツ'), null);
+
+  const button = findDescendant(placeholder, (el) => el.textContent === 'キーワード解除');
+  assert.ok(button);
+  await button.listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  assert.deepEqual(storage.keywordRemovals, [['yahoo_news', '玉川徹']]);
+  assert.equal(card.querySelector('.cb-blocked-placeholder'), null);
+  assert.equal(card.style.height, '');
   assert.ok(card.querySelector('.cb-source-block-button'));
 });
