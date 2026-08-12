@@ -21,3 +21,10 @@
 - `node --test test/content-search.test.mjs test/content-name.test.mjs`: 45件成功、失敗0件
 - 正本上の後続 `b4-verify` が実ブラウザ検証を所有するため、この工程では実ブラウザと掲載画像撮影を実施していない。
 - 正本上の後続 `b5-repackage` が配布物再生成を所有するため、この工程ではpackを実施していない。
+
+## 独立監査
+
+- 監査者: なぎさ（room seq 203、実装者とは別席）
+- 所見: defect-free、確定欠陥0件。
+- 指定元と同梱2画像の `cmp` / SHA-256 / 240×240 RGBA、リンクURLと単一画像DOM、hover/focus重畳、解除・collapse非退行、manifest公開資産、focused test 45/45、`git diff --check` を実物で確認した。
+- 測定器反証として変更前実装・manifestを隔離実行し、ブランドリンク2面とhover資産manifestの3件が赤（42/45）になることを確認した。
