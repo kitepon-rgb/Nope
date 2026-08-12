@@ -56,6 +56,42 @@ test('pack.mjs: ZIPとunpacked面のファイル一覧が一致する', () => {
       .sort();
 
     assert.deepEqual(zipEntries, unpackedFiles, 'ZIPとunpacked面のファイル一覧が一致しない');
+    for (const entry of unpackedFiles) {
+      assert.deepEqual(
+        readFileSync(path.join(unpackedPath, ...entry.split('/'))),
+        readFileSync(path.join(repoRoot, ...entry.split('/'))),
+        `${entry}がリポジトリの同名ファイルと一致しない`,
+      );
+    }
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('pack.mjs: 通常・hover両方のマスコット画像を配布物へ同梱する', () => {
+  const outDir = mkdtempSync(path.join(tmpdir(), 'pack-test-'));
+  try {
+    const version = readManifestVersion();
+    const zipPath = path.join(outDir, `chromeblocker-v${version}.zip`);
+    const unpackedPath = path.join(outDir, `chromeblocker-v${version}-unpacked`);
+    execFileSync('node', [packScript, zipPath], { cwd: repoRoot });
+
+    const mascotEntries = [
+      'assets/mascot-blocked.png',
+      'assets/mascot-blocked-hover.png',
+    ];
+    const zipEntries = listZipEntries(zipPath);
+    for (const entry of mascotEntries) {
+      const packagedPath = path.join(unpackedPath, ...entry.split('/'));
+      assert.ok(existsSync(packagedPath), `${entry}がunpacked面に含まれていない`);
+      assert.ok(zipEntries.includes(entry), `${entry}がZIPに含まれていない`);
+      assert.deepEqual(readFileSync(packagedPath), readFileSync(path.join(repoRoot, entry)),
+        `${entry}がソース資産と一致しない`);
+    }
+    assert.ok(!zipEntries.includes('assets/kitepon-dev-primary.png'),
+      '撤去済みの別ロゴ資産がZIPに含まれている');
+    assert.equal(existsSync(path.join(unpackedPath, 'assets', 'kitepon-dev-primary.png')), false,
+      '撤去済みの別ロゴ資産がunpacked面に含まれている');
   } finally {
     rmSync(outDir, { recursive: true, force: true });
   }

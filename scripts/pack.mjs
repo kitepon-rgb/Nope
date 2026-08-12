@@ -1,6 +1,6 @@
 // 配布用 ZIP と、README記載の「開発者モードでの読み込み（Load unpacked）」用の
 // 展開済みディレクトリ（stable unpacked面）を生成するスクリプト。
-// 同梱するのは manifest.json / src/ / popup/ / icons/ / assets/mascot-blocked.png のみ。
+// 同梱するのは manifest.json / src/ / popup/ / icons/ / 実行時に使うマスコット2画像のみ。
 // assets/mascot-source.png(2048x2048、開発用の原本)は実行時に参照されないため、
 // 配布物に含めない。ディレクトリ丸ごとではなく個別ファイルとして指定することで除外している。
 //
@@ -34,6 +34,7 @@ const INCLUDE_ENTRIES = [
   "popup",
   "icons",
   "assets/mascot-blocked.png",
+  "assets/mascot-blocked-hover.png",
 ];
 
 function readManifestVersion() {

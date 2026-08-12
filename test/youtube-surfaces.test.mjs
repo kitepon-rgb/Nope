@@ -28,8 +28,10 @@ function makeFakeElement(tagName) {
     children: [],
     parent: null,
     listeners: {},
+    attributes: {},
     appendChild(child) { child.parent = el; el.children.push(child); return child; },
     addEventListener(type, fn) { el.listeners[type] = fn; },
+    setAttribute(name, value) { el.attributes[name] = value; },
     remove() {
       if (el.parent) {
         el.parent.children = el.parent.children.filter((c) => c !== el);
