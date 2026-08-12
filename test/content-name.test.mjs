@@ -46,7 +46,7 @@ function findDescendant(root, predicate) {
   return null;
 }
 
-function loadContentName(cards, storage) {
+function loadContentName(cards, storage, consoleImpl = console) {
   const body = makeElement('body');
   const document = {
     body,
@@ -57,7 +57,7 @@ function loadContentName(cards, storage) {
     document,
     MutationObserver: FakeMutationObserver,
     setTimeout: () => 0,
-    console,
+    console: consoleImpl,
     chrome: { runtime: { getURL: (assetPath) => `chrome-extension://test/${assetPath}` } },
     CB_STORAGE: storage,
     CB_KEYWORD_FILTER: { matchesAny: () => false },
@@ -65,6 +65,19 @@ function loadContentName(cards, storage) {
   vm.runInContext(readFileSync(SRC, 'utf8'), context);
   return { contentName: vm.runInContext('CB_NAME', context), document };
 }
+
+test('content-nameは初回スキャン0件を遅延描画として扱いwarnしない', async () => {
+  const warnings = [];
+  const storage = makeStorage();
+  const { contentName } = loadContentName([], storage, {
+    ...console,
+    warn: (...args) => warnings.push(args),
+  });
+
+  await contentName.init({ storage, adapter: adapterFor(new Map()) }).start();
+
+  assert.equal(warnings.length, 0, '正常なCSR遅延描画を拡張機能エラーとして記録している');
+});
 
 function makeStorage(initial = {}, initialKeywords = []) {
   let blocked = { ...initial };

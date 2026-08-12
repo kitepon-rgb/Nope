@@ -1129,21 +1129,11 @@ const CB_SEARCH = (() => {
       });
     }
 
-    let firstScanDone = false;
-
     function scan(root) {
       const handleCard = resolver.type === 'dom_id' ? handleDirectCard : handleAsyncCard;
       const cards = root.querySelectorAll(cardSelector);
-      if (!firstScanDone) {
-        firstScanDone = true;
-        // 初回スキャン0件はセレクタ壊れの検知（content-name.jsのfirstScanDoneと同じ安全弁）。
-        // 「静かに効かなくなる」最悪ケースを防ぐ。
-        if (cards.length === 0) {
-          console.warn(
-            `content-search: 初回スキャンでカードが0件。セレクタが壊れている可能性があります siteKey=${siteKey} cardSelector=${cardSelector}`
-          );
-        }
-      }
+      // 初回0件はYouTube等のCSR遅延描画や正当な空結果でも発生するため、
+      // selector破損とは判定しない。後続MutationObserverのscanで描画済みカードを処理する。
       for (const card of cards) handleCard(card);
 
       // floating buttonの対象カードがdisconnect/不可視/viewport外になっていたら隠す（bell裁定[107][119]）。

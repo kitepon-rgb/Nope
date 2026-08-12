@@ -371,15 +371,8 @@ const CB_NAME = (() => {
 
     function scan(root) {
       const cards = root.querySelectorAll(cardSelector);
-      if (!firstScanDone) {
-        firstScanDone = true;
-        // 初回スキャン0件はセレクタ壊れの検知。「静かに効かなくなる」最悪ケースを防ぐ。
-        if (cards.length === 0) {
-          console.warn(
-            `content-name: 初回スキャンでカードが0件。セレクタが壊れている可能性があります siteKey=${siteKey} cardSelector=${cardSelector}`
-          );
-        }
-      }
+      // 初回0件はCSR遅延描画や正当な空結果でも発生するため、selector破損とは判定しない。
+      // 後続MutationObserverのscanで描画済みカードを処理する。
       for (const card of cards) processCard(card);
     }
 

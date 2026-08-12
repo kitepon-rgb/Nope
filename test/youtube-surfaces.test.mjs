@@ -543,7 +543,7 @@ test('【yt-contract-tests/red】CB_SEARCHのplaceholderは元カードの実測
   assert.equal(wrapper.style.height, '', '解除後にwrapperの高さ指定が復元されていない');
 });
 
-test('【yt-contract-tests/red】CB_SEARCHは初回スキャン0件でセレクタ壊れをwarnする（content-name.jsと同等の安全弁）', async () => {
+test('CB_SEARCHはYouTubeの初回スキャン0件を遅延描画として扱いwarnしない', async () => {
   const warnings = [];
   const search = loadContentSearch({ consoleImpl: { ...console, warn: (...args) => warnings.push(args) } });
   const storage = {
@@ -552,13 +552,13 @@ test('【yt-contract-tests/red】CB_SEARCHは初回スキャン0件でセレク�
     getDisplayMode: async () => 'placeholder',
     onDisplayModeChanged: () => {},
   };
-  // ホームで cardSelector が実際のDOMと一致しなかった場合を模す（0件）。
+  // YouTubeホームでCSR描画がまだ完了していない初回scan（0件）を模す。
   const doc = { querySelectorAll: () => [], body: {}, createElement: (tag) => makeFakeElement(tag) };
 
   const controller = search.init({ document: doc, storage, adapter: YOUTUBE_LIKE_ADAPTER });
   await controller.start();
 
-  assert.equal(warnings.length, 1, 'CB_SEARCHは初回0件スキャンでconsole.warnしない（content-name.jsのfirstScanDone相当の検知が無い）');
+  assert.equal(warnings.length, 0, '正常なCSR遅延描画を拡張機能エラーとして記録している');
 });
 
 test('【yt-contract-tests/red】視聴ページ(watch*)向けcontent_scriptsエントリが存在しない（plan成功条件6・yt-watch-retire撤去後に真になる）', () => {
