@@ -1,24 +1,57 @@
-# chromeblocker-brand terminal-audit 受入監査（2026-08-11 統括bell）
+# chromeblocker-brand 終端監査
 
 ## 判断
 
-**accept**。b1〜b5 すべて done で、ブランド適用は実ブラウザと配布物の双方で実測されている。
+**accept**。b1〜b5 はすべて done で、2026-08-12 の最新オーナー裁定による通常・hover画像、`kitepon.dev` 画像リンク、実ブラウザ受入、v2.0.0 配布物が一貫している。確定欠陥・未充足は0件。
 
-## 監査内容（bell が実物で確認した項目）
+## 工程境界
 
-- **配布 ZIP の中身**: `dist/chromeblocker-v1.1.0.zip` を展開して列挙。`manifest.json` がルート直下、`assets/mascot-blocked.png`（72,403B）が同梱され、2MB 超の原本 `assets/mascot-source.png` は除外されている。`.lattice/` `.team/` `docs/` `test/` も入っていない。
-- **version**: `manifest.json` は `1.1.0`。ZIP のファイル名と一致。
-- **テスト**: `node --test test/*.test.mjs` を bell が再実行し **61/61 green**。
-- **b4 の受入**: 5条件すべて PASS。特に「非表示にして詰める」で後続カードが最大 **768px** 前方シフト（1681 → 913）することを `getBoundingClientRect` の数値で記録。解除ボタンで `href` が変化しない（親リンクへ遷移しない）ことも確認済み。
-- **配布物 smoke**: ZIP 展開先を `--extension` でロードし、マスコット画像が **配布物自身の拡張 ID** で解決されることを確認（`chrome-extension://oejfaemglbjgllkgnodooaeiocokgcdh/assets/mascot-blocked.png`）。ソースツリーではなく出荷物で動くことの証拠になっている。
+- b1-icons: 前回terminal-audit受理後に変更なし。16/48/128pxのアイコン資産とmanifest/action宣言を維持。
+- b2-popup: 前回terminal-audit受理後に変更なし。Nopeブランド、管理UI、`kitepon.dev` 導線を維持。
+- b3-placeholder: 最新採用画像2枚、画像全体の正確な `https://kitepon.dev/` リンク、hover/focus合成、解除ボタンの非遷移を実装。
+- b4-verify: 実ストア `1100223114` を使い、popup、通常/hover/focus、画像リンク、解除、collapse座標をheaded Chromeで確認。掲載画像5枚を1280×800で更新。
+- b5-repackage: v2.0.0据置でZIP/stable unpackedを再生成し、hover画像の同梱漏れを回帰テストで塞いだ。
 
-## この工程で塞いだ穴
+## 独立監査
 
-1. **`web_accessible_resources` の未登録**: MV3 では content script から `chrome.runtime.getURL()` で参照する画像を登録しないと読めない。sumire が「未登録だと `chrome-extension://invalid/` でブロックされる」ことを実機で実証し、b1 で `matches` を `*://*.aliexpress.com/*` に限定して登録した（`<all_urls>` は fingerprinting の的になり審査でも権限過剰として刺さる）。
-2. **`pack.mjs` の同梱漏れ**: `assets/` が同梱対象に入っておらず、そのままなら「ソースツリーでは動くのに install すると画像だけ出ない」事故になっていた。hiyori が自分の担当外と知りつつ申し送り、本人が塞いだ。
-3. **`pack.mjs` の WSL 非互換**: PowerShell の `Compress-Archive` に依存していたため、WSL 上の席では `tmpdir()` が `/tmp` を返して失敗した。mio が Python の `zipfile` へ切り替え、ZIP エントリ名をフォワードスラッシュに統一（展開時のディレクトリ構造が正しくなる）。
-4. **リポジトリ汚染**: ルート直下に画面キャプチャ 36 枚（約 83MB、オーナーのデスクトップ全体が写ったもの）が未追跡で溜まっていた。hiyori が担当外として記録し、bell が `.gitignore` へ追加した上で削除。**git 管理下に入る前に処理したため公開はされていない**。
+実装者とは別の席「なぎさ」が、今回変更した全工程をread-onlyで反証した。
 
-## 残っている外部依存
+- b3-placeholder: room seq203、defect-free
+- b4-verify: room seq226、defect-free
+- b5-repackage: room seq246、defect-free
 
-`chromeblocker-release` の r7-submit（ストア提出）。オーナーによる Chrome Web Store デベロッパー登録と $5 の支払いが前提で、エージェントは代行しない。
+b5監査では、ZIP payload / stable unpacked / repo の25ファイルが全てバイト一致し、重複・危険pathなし、通常・hover両画像のhash一致、旧 `assets/kitepon-dev-primary.png` 不在を確認した。欠陥版packの3 PASS / 1 FAILと現行4/4、YouTube fake DOM 25/25、全階層236/236も独立再実行している。
+
+## 実ブラウザと配布物
+
+- ソースツリーのb4 extension ID: `jihinfddknleadkgniinbklbnpmggpio`
+- stable unpackedのb5 extension ID: `fipgalkbpoinlgbmdiddbeknabooajel`
+- 対象ページ: `https://ja.aliexpress.com/w/wholesale-CMP-170HX.html`
+- popup、拡張カードアイコン、通常プレースホルダー、hover画像を配布物自身のURLで表示
+- 画像リンク: `https://kitepon.dev/`
+- 通常/hover画像: 240×240、読込成功
+- ZIP: `dist/chromeblocker-v2.0.0.zip`
+- ZIP SHA-256: `2ed92e68fe393c0f4fb081cf28423ab539086d72c319b7d2166dbce4764ceced`
+- ZIP size: 281,455 bytes
+- manifest version: `2.0.0`（room seq237のオーナー裁定で据置）
+
+## 検証
+
+- `node --test 'test/**/*.test.mjs'`: 236/236 PASS
+- `test/pack.test.mjs`: 修正前3 PASS / 1 FAIL、修正後4/4 PASS
+- `test/youtube-surfaces.test.mjs`: 25/25 PASS
+- `git diff --check`: PASS
+- b4掲載画像5枚、b5配布smoke画像4枚: 全て1280×800 PNG
+
+## 証跡
+
+- `evidence/chromeblocker-brand/b3-placeholder.md`
+- `evidence/chromeblocker-brand/b4-verify.md`
+- `evidence/chromeblocker-brand/b5-repackage.md`
+- `docs/evidence/b4-verify.md`
+- `docs/evidence/b5-package-extensions.png`
+- `docs/evidence/b5-package-popup.png`
+- `docs/evidence/b5-package-placeholder.png`
+- `docs/evidence/b5-package-placeholder-hover.png`
+
+`chromeblocker-release/r7-submit` は別planの外部依存であり、このブランド工程の未完了ではない。
