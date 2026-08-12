@@ -747,11 +747,18 @@ const CB_SEARCH = (() => {
     return { enqueue };
   }
 
+  /** @param {{pathname?: string}} pageLocation */
+  function isAliExpressSearchPage(pageLocation) {
+    return /^\/w(?:\/|$)/.test(pageLocation.pathname || '');
+  }
+
   // AliExpress アダプタ（パターンC: 非同期解決）。
   // cardSelector は manifest.json content_scripts.matches に対応する面のカード要素。
   const ALIEXPRESS_ADAPTER = {
     siteKey: 'aliexpress',
     cardSelector: CARD_SELECTOR,
+    // manifestは商品詳細のcontent-item.jsと共用なので広く注入するが、検索エンジンは一覧面だけで起動する。
+    isTargetPage: isAliExpressSearchPage,
     getWrapper: (card) => findWrapper(card),
     resolver: {
       type: 'async_resolve',
@@ -1115,6 +1122,13 @@ const CB_SEARCH = (() => {
     }
 
     async function start() {
+      // content scriptのmatchは同一サイトの詳細面まで含む。対象外面のカード0件は正常なので、
+      // storage・監視・初回0件警告を開始しない。locationを持たないfixtureは従来契約で動かす。
+      if (typeof adapter.isTargetPage === 'function'
+          && doc.location
+          && !adapter.isTargetPage(doc.location)) {
+        return;
+      }
       blockedSources = await storage.getBlockedSources(siteKey);
       displayMode = await storage.getDisplayMode();
       if (resolver.canonicalize) sourceAliases = await storage.getSourceAliases(siteKey);
@@ -1177,5 +1191,12 @@ const CB_SEARCH = (() => {
     return { start, scan };
   }
 
-  return { extractProductId, findWrapper, applyVisibility, createResolveQueue, init };
+  return {
+    extractProductId,
+    findWrapper,
+    applyVisibility,
+    createResolveQueue,
+    isAliExpressSearchPage,
+    init,
+  };
 })();

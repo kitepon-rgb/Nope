@@ -118,6 +118,15 @@ test('YouTube: siteKeyが正しい', () => {
   assert.equal(adapter.siteKey, 'youtube');
 });
 
+test('YouTube: ホーム・検索面だけを対象とし視聴面を除外する', () => {
+  const adapter = loadAdapter();
+
+  assert.equal(adapter.isTargetPage({ pathname: '/' }), true);
+  assert.equal(adapter.isTargetPage({ pathname: '/results' }), true);
+  assert.equal(adapter.isTargetPage({ pathname: '/watch' }), false);
+  assert.equal(adapter.isTargetPage({ pathname: '/shorts/example' }), false);
+});
+
 test('YouTube: matchesに www.youtube.com を含む', () => {
   const adapter = loadAdapter();
   assert.ok(adapter.matches.some((m) => m.includes('youtube.com')));

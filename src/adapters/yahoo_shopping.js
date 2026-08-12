@@ -8,6 +8,7 @@
 const YAHOO_SHOPPING_ADAPTER = {
   siteKey: 'yahoo_shopping',
   matches: ['*://shopping.yahoo.co.jp/*'],
+  isTargetPage: (pageLocation) => /^\/search(?:\/|$)/.test(pageLocation.pathname || ''),
 
   // CSS Modules ハッシュ付き（例: SearchResult_SearchResultItem__mJ7vY）。
   // 子要素も同じ class 接頭辞を使うため、検索結果コンテナの直下だけを商品カードとして拾う。

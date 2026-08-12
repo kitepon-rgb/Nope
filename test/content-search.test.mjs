@@ -131,6 +131,49 @@ test('AliExpress専用entryは既定adapterを一度だけ起動する', () => {
   assert.equal(startCalls, 1);
 });
 
+test('AliExpress検索面だけを対象とし商品詳細面を除外する', () => {
+  const search = loadContentSearch();
+
+  assert.equal(search.isAliExpressSearchPage({ pathname: '/w/wholesale-CMP-170HX.html' }), true);
+  assert.equal(search.isAliExpressSearchPage({ pathname: '/item/1005012866260930.html' }), false);
+});
+
+test('adapterの対象外ページではstorage読込・カード走査・警告を開始しない', async () => {
+  let blockedSourcesReads = 0;
+  let scans = 0;
+  const warnings = [];
+  const search = loadContentSearch({
+    consoleImpl: { ...console, warn: (...args) => warnings.push(args) },
+  });
+  const document = Object.assign(makeFakeDocument(), {
+    location: { pathname: '/item/123.html' },
+    body: {},
+    querySelectorAll() {
+      scans += 1;
+      return [];
+    },
+  });
+  const storage = {
+    getBlockedSources: async () => { blockedSourcesReads += 1; return {}; },
+    getDisplayMode: async () => 'placeholder',
+    onBlockedSourcesChanged: () => {},
+    onDisplayModeChanged: () => {},
+  };
+  const adapter = {
+    siteKey: 'test',
+    cardSelector: '.card',
+    isTargetPage: (pageLocation) => pageLocation.pathname === '/search',
+    getWrapper: (card) => card,
+    resolver: { type: 'dom_id', getSource: () => null },
+  };
+
+  await search.init({ document, storage, adapter }).start();
+
+  assert.equal(blockedSourcesReads, 0);
+  assert.equal(scans, 0);
+  assert.equal(warnings.length, 0);
+});
+
 test('manifestはAliExpress専用entryをcontent-search.jsの後に読み込む', () => {
   const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
   const entry = manifest.content_scripts.find((item) => item.js.includes('src/content-search.js'));

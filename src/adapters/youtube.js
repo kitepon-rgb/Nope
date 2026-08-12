@@ -38,6 +38,7 @@
 const YOUTUBE_ADAPTER = {
   siteKey: 'youtube',
   matches: ['*://www.youtube.com/*'],
+  isTargetPage: (pageLocation) => ['/', '/results'].includes(pageLocation.pathname || ''),
 
   // 検索結果（ytd-video-renderer）とホーム（ytd-rich-item-renderer）の両方を1つのadapterで拾う。
   // Shadow DOM なし（実測確認）。

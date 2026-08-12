@@ -109,6 +109,14 @@ test('Yahoo!ショッピング: siteKeyが正しい', () => {
   assert.equal(adapter.siteKey, 'yahoo_shopping');
 });
 
+test('Yahoo!ショッピング: 検索面だけを対象とし商品詳細面を除外する', () => {
+  const adapter = loadAdapter();
+
+  assert.equal(adapter.isTargetPage({ pathname: '/search' }), true);
+  assert.equal(adapter.isTargetPage({ pathname: '/search/%E3%83%A1%E3%83%A2%E3%83%AA/0/' }), true);
+  assert.equal(adapter.isTargetPage({ pathname: '/products/example' }), false);
+});
+
 test('Yahoo!ショッピング: matchesに shopping.yahoo.co.jp を含む', () => {
   const adapter = loadAdapter();
   assert.ok(adapter.matches.some((m) => m.includes('shopping.yahoo.co.jp')));

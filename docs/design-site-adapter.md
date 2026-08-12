@@ -47,6 +47,10 @@ Nope v1.1.0 は AliExpress 専用に実装されている（`content-search.js` 
   matches: ['string'],     // manifest.json content_scripts.matches と一致させる
   cardSelector: 'string',  // 検索カード要素の CSS セレクタ
 
+  // 任意。manifest の matches が商品詳細・視聴面まで含む場合、一覧エンジンを起動する面だけ true。
+  // false の面では storage 読込・DOM監視・初回0件警告を開始しない。
+  isTargetPage(location) → boolean,
+
   // カード要素から「非表示にする外側要素（wrapper）」を返す関数。
   // null を返すとそのカードはスキップ（wrapper が見つからない扱い）。
   // AliExpress 以外は card 自体が grid/flex アイテムなので (card) => card が基本。
@@ -380,7 +384,8 @@ YouTube を例にすると:
 - ホバー/タップで説明: 「この発信元は名前でブロックされています。発信元が名前を変えると自動的に解除されます」
 
 **エンジン側でのセレクタ壊れの検知**:
-- 各アダプタの `cardSelector` に対して `querySelectorAll` を実行し、初回スキャン時に0件だった場合は `console.warn` を出す
+- `isTargetPage` が true（未定義なら従来どおり対象）の面だけ `cardSelector` に対して `querySelectorAll` を実行し、初回スキャン時に0件だった場合は `console.warn` を出す
+- 商品詳細・動画視聴など、検索カード0件が正常な面では一覧エンジン自体を起動しない
 - Yahoo!ショッピングのような CSS Modules セレクタ（`class*=` 部分一致）が壊れた場合に運用で気づけるようにする
 
 **マッチが壊れたことそのものの自動検知はしない**:  

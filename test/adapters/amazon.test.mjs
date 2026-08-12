@@ -43,6 +43,14 @@ test('Amazon: siteKeyが正しい', () => {
   assert.equal(adapter.siteKey, 'amazon');
 });
 
+test('Amazon: 検索面だけを対象とし商品詳細面を除外する', () => {
+  const adapter = loadAdapter();
+
+  assert.equal(adapter.isTargetPage({ pathname: '/s' }), true);
+  assert.equal(adapter.isTargetPage({ pathname: '/s/' }), true);
+  assert.equal(adapter.isTargetPage({ pathname: '/dp/B0CT857V89' }), false);
+});
+
 test('Amazon: matchesに www.amazon.co.jp を含む', () => {
   const adapter = loadAdapter();
   assert.ok(adapter.matches.some((m) => m.includes('amazon.co.jp')));

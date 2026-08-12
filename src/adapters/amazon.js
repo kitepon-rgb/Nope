@@ -17,6 +17,7 @@
 const AMAZON_ADAPTER = {
   siteKey: 'amazon',
   matches: ['*://www.amazon.co.jp/*'],
+  isTargetPage: (pageLocation) => /^\/s(?:\/|$)/.test(pageLocation.pathname || ''),
   cardSelector: 'div[data-component-type="s-search-result"]',
 
   // カード自体が親 display:grid のグリッドアイテムなので card === wrapper。
