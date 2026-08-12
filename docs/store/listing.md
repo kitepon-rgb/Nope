@@ -9,7 +9,7 @@ r6-store-listing の成果物。Chrome Web Store デベロッパーダッシュ�
 ## 製品名・URL
 
 - **製品名**: Nope — 見たくないもの見せません
-- **Homepage URL**: https://github.com/kitepon-rgb/Nope
+- **Homepage URL**: https://kitepon.dev/
 - **Privacy policy URL**: https://github.com/kitepon-rgb/Nope/blob/main/docs/store/privacy.md
 
 ---
@@ -77,19 +77,17 @@ entry でも読み込まれるため、AliExpress 既定アダプタの起動だ
 
 楽天市場の検索結果ページのみで実行される。
 
-- **検索結果ページ**（`content-search.js` + `rakuten` アダプタ）: 商品カード（`.dui-card`）内の店舗リンク（`a[href^="https://www.rakuten.co.jp/"][href$="/"]`）から店舗スラグを直接取得し、ブロック対象かどうか判定して非表示にするために必要。発信元の識別子は DOM から同期取得できるため、外部 API へのリクエストは行わない。
+- **検索結果ページ**（`content-search.js` + `rakuten` アダプタ）: 商品カード（`.dui-card`）の`data-shop-id`から店舗IDを、`.content.merchant`から表示名を取得し、ブロック対象かどうか判定して非表示にするために必要。通常商品とCPC広告の双方をDOMだけで判定し、外部APIへのリクエストは行わない。
 
 ### ホストアクセス `*://shopping.yahoo.co.jp/*`（content script）
 
 Yahoo!ショッピングの検索結果ページのみで実行される。
 
-- **検索結果ページ**（`content-search.js` + `yahoo_shopping` アダプタ）: 商品カード内の出品ストアリンク（`a[href^="https://store.shopping.yahoo.co.jp/"][href$="/"]`）から storeId を直接取得し、ブロック対象かどうか判定して非表示にするために必要。発信元の識別子は DOM から同期取得できるため、外部 API へのリクエストは行わない。
+- **検索結果ページ**（`content-search.js` + `yahoo_shopping` アダプタ）: 商品カード内の`store.shopping.yahoo.co.jp/{storeId}/{item}.html`形式のリンクからstoreIdを取得し、ストアホームリンクから表示名を取得して、ブロック対象かどうか判定し非表示にするために必要。発信元の識別子はDOMから同期取得できるため、外部APIへのリクエストは行わない。
 
 ### ホストアクセス `*://www.youtube.com/*`（content script、検索結果・ホーム）
 
-マッチパターンは YouTube 全ページに及ぶが、動画カード（`ytd-video-renderer`）が実在する面（検索結果ページ、
-およびホーム）でのみ実質的に動作する。ホームのカード構造は実DOM未確認（ログイン必須のため）——
-セレクタが一致しなければ初回スキャン0件の`console.warn`のみで何も起きない（黙って誤動作しない設計）。
+マッチパターンはYouTube全ページに及ぶが、動画カードが実在する検索結果ページとホームでのみ実質的に動作する。ホームと検索結果の双方で、同じチャンネルを正しくブロック・解除できることを実ブラウザで確認済み。
 
 - **検索結果ページ・ホーム**（`content-search.js` + `youtube` アダプタ、パターンA）: 動画カード内のチャンネルリンク（`a[href*="/@"]` または `a[href*="/channel/"]`）からチャンネル識別子を取得し、ブロック対象かどうか判定して非表示にするために必要。
 - **チャンネルID解決**: handle形式（`/@handle`）とチャンネルID形式（`/channel/UC...`）が同一チャンネルを指す場合に片方だけブロックが効かなくなる問題を避けるため、ユーザーがチャンネルをブロック/解除する操作をした時だけ（カードの表示・スキャンだけでは発生しない）、当該チャンネル自身のページ（`https://www.youtube.com/@{handle}` または `https://www.youtube.com/channel/{チャンネルID}`）を取得し、応答に含まれる`canonical link`から正本のチャンネルIDを解決する。**アクセス先はYouTube自身のドメインのみ。拡張の開発者サーバーへは何も送信しない。** 解決結果は`chrome.storage.sync`の`sourceAliases`に保存し（blockedSourcesと同じく端末間で共有し、同じhandleへの重複リクエストを他端末でも回避する）、解決に失敗した場合はブロック操作自体を提供しない（表示名などへの推測フォールバックはしない）。
@@ -124,9 +122,15 @@ Amazon.co.jp の検索結果ページのみで実行される。
 
 詳細は `docs/store/privacy.md`（公開URL: https://github.com/kitepon-rgb/Nope/blob/main/docs/store/privacy.md）。ダッシュボードの **Privacy practices** タブでの申告方針:
 
-- **Data collection**: 拡張の開発者・提供者は、いかなるユーザーデータも収集・受信しない（送信先はすべてブラウザローカルの `chrome.storage`、またはユーザー自身が閲覧中の各サイト自身のドメインのみ。AliExpress の mtop API・ヤフオクの出品ページ・Amazon の商品詳細ページ・YouTubeのチャンネルページへのリクエストはユーザーが今まさに閲覧しているサイト自身へのものであり、第三者への送信ではない）。
-- **Data usage 該当なし**: Personally identifiable info / Health info / Financial and payment info / Authentication info / Personal communications / Location / Web history / User activity のいずれについても「収集して外部（開発者・第三者）へ送信する」に該当する項目はない。
+- **Data handling**: 本拡張は、機能提供のために認証情報（AliExpressの`_m_h5_tk`トークン）、ウェブ履歴（現在の対応ページとカードURL）、ウェブサイト内容（タイトル・リンク・発信元情報）をブラウザ内で処理する。一部の公開識別子とAliExpress署名は閲覧対象サイト自身へ送信する。開発者・提供者はデータを収集・受信せず、無関係な第三者への送信もない。
+- **Data usage 該当あり**: Authentication information / Web history / Website content。
+- **Data usage 該当なし**: Personally identifiable info / Health info / Financial and payment info / Personal communications / Location / User activity。
 - **Certify compliance**: Developer Program Policies への準拠を宣言する（該当時にチェック）。
+
+### Remote code declaration
+
+- **申告**: 「はい、リモートコードを使用しています」。
+- **理由**: AliExpressのストアID解決APIがJSONPのみを返すため、その応答をAliExpressページの`MAIN` worldで実行する。このコンテキストはChrome拡張APIへアクセスできず、拡張側へはシリアライズしたAPI応答データだけを`CustomEvent`で返す。Chrome Web StoreのManifest V3追加要件が認める「拡張APIから隔離されたコンテキスト」の範囲に限定し、開発者サーバー由来のコードは一切読み込まない。
 
 ---
 
@@ -136,32 +140,26 @@ Amazon.co.jp の検索結果ページのみで実行される。
 
 > 指定した発信元やキーワードのコンテンツを閲覧中のWebページから非表示にします。AliExpress・楽天・Amazon・YouTube・Yahoo!など7サイトに対応。
 
-### 詳細説明（Detailed description）
+### 詳細説明（Detailed description、実入力）
 
-> 閲覧中のWebページから、指定した発信元のコンテンツを非表示にするブロッカー拡張機能です。
+> 閲覧中のWebページから、指定した発信元やキーワードのコンテンツを非表示にするChrome拡張機能です。
 >
-> **できること**
-> - 各サイトの検索結果・一覧ページで、ブロック対象の発信元（ショップ・チャンネル・出版社）のコンテンツを自動非表示
-> - AliExpress の商品ページから「このストアをブロック」ボタンでワンクリック登録
-> - ブロックリストの変更はページの再読み込みなしで即座に反映
-> - 拡張アイコンのポップアップから、ブロック中の発信元の確認・追加・解除がいつでも可能
-> - ブロック済みコンテンツの表示方法は、控えめなプレースホルダー表示／完全に非表示にして詰める、の2モードから選択可能
+> 【できること】
+> - 対応サイトの検索結果や一覧ページで、指定したショップ・チャンネル・出版社のコンテンツを自動的にブロック
+> - ページ上の「ブロック」ボタンから発信元を登録
+> - Yahoo!ニュース／Yahoo! JAPANでは、指定キーワードを含む記事もブロック
+> - 拡張アイコンのポップアップから、ブロック中の発信元やキーワードを確認・削除
+> - ブロック済みコンテンツは、プレースホルダー表示または完全に非表示にして詰める表示から選択
 >
-> **データの扱い**
-> - 開発者や第三者が運営するサーバーへ、ユーザーのデータを送信しません
-> - ブロックリストはお使いの Google アカウントで端末間同期されます（`chrome.storage.sync`）
-> - 発信元の解決キャッシュはこの端末内にのみ保存されます（`chrome.storage.local`）
-> - 詳しくはプライバシーポリシーをご覧ください
+> 【データの扱い】
+> - ブロック判定のため、対応ページのURL・タイトル・発信元をブラウザ内で処理します
+> - AliExpressでは、同サイト発行トークンを商品識別用の署名生成にのみ利用します
+> - 開発者や無関係な第三者が運営するサーバーへユーザーデータを送信しません
+> - ブロックリストと設定はchrome.storageを利用して保存します
+> - 発信元の解決に必要な通信は、閲覧対象サイト自身のドメインに対してのみ行います
 >
-> **対応サイト**
-> - AliExpress（`aliexpress.com`）の検索結果ページ・商品ページ
-> - 楽天市場（`search.rakuten.co.jp`）の検索結果ページ
-> - Yahoo!ショッピング（`shopping.yahoo.co.jp`）の検索結果ページ
-> - ヤフオク（`auctions.yahoo.co.jp`）の検索結果ページ
-> - Amazon.co.jp（`amazon.co.jp`）の検索結果ページ
-> - YouTube（`youtube.com`）の検索結果ページ
-> - Yahoo ニュース（`news.yahoo.co.jp`）のニュース一覧
-> - Yahoo! JAPAN（`yahoo.co.jp`）のトップページのニュースフィード
+> 【対応サイト】
+> AliExpress、楽天市場、Yahoo!ショッピング、ヤフオク、Amazon.co.jp、YouTube、Yahoo!ニュース、Yahoo! JAPAN
 
 **誇大表現・煽り文言の排除について**: 拡張内部の UI（トースト通知等、`src/content-item.js`）には煽情的な文言はない（「〇〇をブロックしました」「〇〇のブロックを解除しました」という淡々とした通知のみ）。
 
@@ -171,23 +169,21 @@ Amazon.co.jp の検索結果ページのみで実行される。
 
 - **Category**: Tools（ショッピング・動画・ニュースを横断する汎用コンテンツフィルターであり、特定の買い物体験だけを主機能としないため。Chrome Web Store の現行カテゴリ定義では「他カテゴリに収まらないツール」に該当）
 - **Language**: 日本語（ja）のみ。`popup/popup.html` は `lang="ja"`、拡張内メッセージもすべて日本語。多言語対応は未実装のため、英語等での申請はしない
+- **Pricing**: 料金なし（アプリ内購入なし）
+- **Visibility**: 公開
+- **Regions**: すべての地域
 
 ---
 
-## Screenshots（掲載順とキャプション）
+## Screenshots（実際の掲載順）
 
 ブランド適用後の画像は b4-verify が 2026-08-12 に実ブラウザで撮り直した（`docs/evidence/b4-verify.md` 参照）。既定表示モードは `placeholder`（プレースホルダー表示）であり、商品が「消える」のは `collapse` モードへ切り替えた場合だけである。誤って「既定で商品が消える」と説明しないよう、1番をプレースホルダー表示、4番を collapse モードとして分ける。
 
-| # | シーン | 画像ファイル | キャプション（日本語） |
-|---|--------|--------------|------------------------|
-| 1 | 検索結果ページ：ブロック済みストアの商品がマスコットプレースホルダーに置き換わっている（既定表示） | `docs/evidence/ac3-placeholder.png`（b4-verify、2026-08-12実測、1280×800） | ブロックしたストアの商品は、控えめなマスコットプレースホルダーに自動的に置き換わります |
-| 2 | 商品ページ：「このストアをブロック」ボタン | `docs/evidence/t3-button-injected.png` / `t3-blocked.png`（1280x800での撮り直しが望ましい。b4-verify 対象外のため未更新） | 商品ページの「このストアをブロック」ボタンでワンクリック登録 |
-| 3 | ポップアップ：ブロック中ストア一覧・表示モード切替UI・kitepon.devブランド適用済み | `docs/evidence/ac2-popup.png`（b4-verify、2026-08-12実測、1280×800） | ポップアップでブロック中のストアを確認・削除、表示モードもいつでも切替できます |
-| 4 | 完全非表示（collapse）モードに切替後の検索結果（後続カードが前へ詰まる） | `docs/evidence/ac5-collapse.png`（b4-verify、2026-08-12実測、1280×800） | 完全に消して空間を詰める表示にも切替可能です |
-| 5 | 参考：ブロック前の通常の検索結果（Before比較用） | `docs/evidence/ac3-unblock.png`（b4-verify、2026-08-12実測、1280×800。ブロック解除後の通常表示） | （通常の検索結果。1・4との対比用。5枚目として掲載するか、1枚目の前段として使うかは掲載時に判断） |
+| # | シーン | 画像ファイル |
+|---|--------|--------------|
+| 1 | ブロック済みストアの商品をマスコットプレースホルダーへ置換 | `docs/evidence/ac3-placeholder.png` |
+| 2 | ブロック中の発信元と表示モードを管理するポップアップ | `docs/evidence/ac2-popup.png` |
+| 3 | 完全非表示（collapse）モード | `docs/evidence/ac5-collapse.png` |
+| 4 | ブロック解除後の通常表示 | `docs/evidence/ac3-unblock.png` |
 
-**掲載方針**: 1枚目は必ず「プレースホルダー表示」という中核体験（既定の見た目）を見せる。2・3枚目で操作方法（ブロックの追加・管理）を示す。4枚目でcollapseモードという追加の柔軟性を見せる。5枚目（Before）は任意——入れる場合は1枚目の前に置いて「導入前後の比較」として見せる構成が分かりやすいが、最終順序の決定はストア掲載時（r7）の裁量とする。1〜4のみでも提出可能な構成として扱ってよい。
-
-**b4-verify（2026-08-12）での更新内容**: 旧スクリーンショットを、最新オーナー裁定の通常・hover画像と `kitepon.dev` 画像リンクを備えた実装で再撮影した。商品ページボタン（2番）は b4-verify の対象外のため未更新。
-
-**画像サイズについて**: b4-verify で更新した1・3・4・5番は、いずれも 1280×800 PNG で撮影済み。
+4枚ともb4-verifyで2026-08-12に実ブラウザ撮影した1280×800・24ビットPNG（アルファなし）。
