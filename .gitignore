@@ -15,3 +15,6 @@ dist/
 
 # 画面キャプチャツールの既定出力(デスクトップ全体が写るため絶対にコミットしない)
 screenshot-mon*.png
+
+# Playwright MCP の調査ログ・ページダンプ（閲覧内容を含み得るためコミットしない）
+.playwright-mcp/
