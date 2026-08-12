@@ -20,7 +20,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["assets/mascot-blocked.png"],
+      "resources": ["assets/mascot-blocked.png", "assets/mascot-blocked-hover.png"],
       "matches": [
         "*://*.aliexpress.com/*",
         "*://search.rakuten.co.jp/*",

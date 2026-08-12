@@ -24,7 +24,9 @@ const CB_SEARCH = (() => {
   // オーナー確定のマスコット画像（assets/mascot-source.pngをカード表示サイズへリサイズ済み）。
   // 拡張同梱リソースを chrome.runtime.getURL() 経由で参照する（外部URL禁止）。
   const MASCOT_IMAGE_PATH = 'assets/mascot-blocked.png';
+  const MASCOT_HOVER_IMAGE_PATH = 'assets/mascot-blocked-hover.png';
   const MASCOT_DISPLAY_SIZE = 120;
+  const BRAND_URL = 'https://kitepon.dev/';
 
   // kitepon.dev ブランド正典（color-system.md）の適用値。
   const COLOR_ORANGE = '#ef8d32'; // Discovery Orange: 枠・識別色
@@ -48,6 +50,40 @@ const CB_SEARCH = (() => {
   /** @returns {string} 拡張同梱のマスコット画像URL（chrome.runtime.getURL経由） */
   function getMascotImageUrl() {
     return chrome.runtime.getURL(MASCOT_IMAGE_PATH);
+  }
+
+  /** @returns {string} hover/focus時のマスコット画像URL */
+  function getMascotHoverImageUrl() {
+    return chrome.runtime.getURL(MASCOT_HOVER_IMAGE_PATH);
+  }
+
+  /** @param {any} art @returns {any} */
+  function buildBrandLink(art) {
+    const link = document.createElement('a');
+    link.href = BRAND_URL;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.title = 'kitepon.dev';
+    link.setAttribute('aria-label', 'kitepon.dev を開く');
+    Object.assign(link.style, {
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      lineHeight: '0', cursor: 'pointer', borderRadius: '8px',
+    });
+    let hovered = false;
+    let focused = false;
+    const updateArt = () => {
+      art.src = hovered || focused ? getMascotHoverImageUrl() : getMascotImageUrl();
+    };
+    link.addEventListener('mouseenter', () => { hovered = true; updateArt(); });
+    link.addEventListener('mouseleave', () => { hovered = false; updateArt(); });
+    link.addEventListener('focus', () => { focused = true; updateArt(); });
+    link.addEventListener('blur', () => { focused = false; updateArt(); });
+    link.addEventListener('click', (event) => {
+      // カード本来の遷移だけを止め、kitepon.devリンクの既定動作は維持する。
+      if (event && event.stopPropagation) event.stopPropagation();
+    });
+    link.appendChild(art);
+    return link;
   }
 
   // placeholder挿入時に隠した元の子要素のdisplay値を退避しておく（DOM要素へ直接プロパティを生やさない）。
@@ -130,7 +166,7 @@ const CB_SEARCH = (() => {
     art.height = MASCOT_DISPLAY_SIZE;
     art.alt = ''; // 情報はlabel/ストア名側で伝えるため装飾画像として扱う
     art.ariaHidden = 'true';
-    el.appendChild(art);
+    el.appendChild(buildBrandLink(art));
 
     const label = document.createElement('p');
     label.textContent = 'BLOCKED';

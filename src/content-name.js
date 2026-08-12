@@ -15,7 +15,9 @@ const CB_NAME = (() => {
   const TOAST_CLASS = 'cb-toast';
   const TOAST_DURATION_MS = 2000;
   const MASCOT_IMAGE_PATH = 'assets/mascot-blocked.png';
+  const MASCOT_HOVER_IMAGE_PATH = 'assets/mascot-blocked-hover.png';
   const MASCOT_DISPLAY_SIZE = 64;
+  const BRAND_URL = 'https://kitepon.dev/';
 
   // kitepon.dev ブランド正典（color-system.md）。content-search.js と同値を維持すること。
   const COLOR_ORANGE = '#ef8d32';
@@ -25,6 +27,37 @@ const CB_NAME = (() => {
 
   function getMascotImageUrl() {
     return chrome.runtime.getURL(MASCOT_IMAGE_PATH);
+  }
+
+  function getMascotHoverImageUrl() {
+    return chrome.runtime.getURL(MASCOT_HOVER_IMAGE_PATH);
+  }
+
+  function buildBrandLink(art) {
+    const link = document.createElement('a');
+    link.href = BRAND_URL;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.title = 'kitepon.dev';
+    link.setAttribute('aria-label', 'kitepon.dev を開く');
+    Object.assign(link.style, {
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      lineHeight: '0', cursor: 'pointer', borderRadius: '8px', flexShrink: '1',
+    });
+    let hovered = false;
+    let focused = false;
+    const updateArt = () => {
+      art.src = hovered || focused ? getMascotHoverImageUrl() : getMascotImageUrl();
+    };
+    link.addEventListener('mouseenter', () => { hovered = true; updateArt(); });
+    link.addEventListener('mouseleave', () => { hovered = false; updateArt(); });
+    link.addEventListener('focus', () => { focused = true; updateArt(); });
+    link.addEventListener('blur', () => { focused = false; updateArt(); });
+    link.addEventListener('click', (event) => {
+      if (event && event.stopPropagation) event.stopPropagation();
+    });
+    link.appendChild(art);
+    return link;
   }
 
   const originalChildStateByWrapper = new WeakMap();
@@ -87,7 +120,7 @@ const CB_NAME = (() => {
       width: `${MASCOT_DISPLAY_SIZE}px`, height: `${MASCOT_DISPLAY_SIZE}px`,
       maxWidth: '24%', maxHeight: 'calc(100% - 8px)', objectFit: 'contain', flexShrink: '1',
     });
-    el.appendChild(art);
+    el.appendChild(buildBrandLink(art));
 
     const content = document.createElement('div');
     Object.assign(content.style, {

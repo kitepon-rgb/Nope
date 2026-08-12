@@ -10,6 +10,7 @@ import vm from 'node:vm';
 const SRC = path.join(import.meta.dirname, '..', 'src', 'content-search.js');
 const ALIEXPRESS_INIT_SRC = path.join(import.meta.dirname, '..', 'src', 'content-aliexpress-init.js');
 const MANIFEST = path.join(import.meta.dirname, '..', 'manifest.json');
+const BRAND_URL = 'https://kitepon.dev/';
 
 class FakeMutationObserver {
   observe() {}
@@ -29,8 +30,10 @@ function makeFakeElement(tagName) {
     children: [],
     parent: null,
     listeners: {},
+    attributes: {},
     appendChild(child) { child.parent = el; el.children.push(child); return child; },
     addEventListener(type, fn) { el.listeners[type] = fn; },
+    setAttribute(name, value) { el.attributes[name] = value; },
     remove() {
       if (el.parent) {
         el.parent.children = el.parent.children.filter((c) => c !== el);
@@ -185,6 +188,15 @@ test('manifestはAliExpress専用entryをcontent-search.jsの後に読み込む'
   );
 });
 
+test('manifestはプレースホルダー用の通常・hover画像を公開する', () => {
+  const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
+  const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources);
+
+  assert.ok(resources.includes('assets/mascot-blocked.png'));
+  assert.ok(resources.includes('assets/mascot-blocked-hover.png'));
+  assert.equal(resources.includes('assets/kitepon-dev-primary.png'), false);
+});
+
 test('manifestはヤフオク・AmazonのPattern C読み込み順と画像公開先を登録する', () => {
   const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
   const expectedEntries = [
@@ -282,6 +294,35 @@ test('applyVisibilityのplaceholderモードはwrapperを表示のままプレ�
   assert.equal(wrapper.style.display, '');
   const placeholder = wrapper.children.find((c) => c.className === 'cb-blocked-placeholder');
   assert.ok(placeholder);
+});
+
+test('applyVisibilityのplaceholderはロゴ込み画像全体をkitepon.devリンクにしhover/focus画像を切り替える', () => {
+  const search = loadContentSearch();
+  const wrapper = makeFakeWrapper();
+  search.applyVisibility(wrapper, true, { mode: 'placeholder' });
+  const placeholder = wrapper.children.find((child) => child.className === 'cb-blocked-placeholder');
+  const brandLink = placeholder.children.find((child) => child.tagName === 'a');
+
+  assert.ok(brandLink);
+  assert.equal(brandLink.href, BRAND_URL);
+  assert.equal(brandLink.target, '_blank');
+  assert.equal(brandLink.rel, 'noopener');
+  assert.equal(brandLink.attributes['aria-label'], 'kitepon.dev を開く');
+  assert.equal(brandLink.children.length, 1);
+  const art = brandLink.children[0];
+  assert.equal(art.src, 'chrome-extension://test-id/assets/mascot-blocked.png');
+
+  brandLink.listeners.mouseenter();
+  assert.equal(art.src, 'chrome-extension://test-id/assets/mascot-blocked-hover.png');
+  brandLink.listeners.focus();
+  brandLink.listeners.mouseleave();
+  assert.equal(art.src, 'chrome-extension://test-id/assets/mascot-blocked-hover.png');
+  brandLink.listeners.blur();
+  assert.equal(art.src, 'chrome-extension://test-id/assets/mascot-blocked.png');
+
+  let stopped = false;
+  brandLink.listeners.click({ stopPropagation: () => { stopped = true; } });
+  assert.equal(stopped, true);
 });
 
 test('applyVisibilityのplaceholderはストア名をtextContentで入れる(innerHTMLに混ぜない)', () => {

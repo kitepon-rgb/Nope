@@ -5,6 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const SRC = path.join(import.meta.dirname, '..', 'src', 'content-name.js');
+const BRAND_URL = 'https://kitepon.dev/';
 
 class FakeMutationObserver {
   observe() {}
@@ -160,6 +161,34 @@ test('Pattern BボタンはnameOnly=trueで登録し、toast後にplaceholderだ
   assert.equal(button.style.display, 'none');
   assert.ok(document.body.children.some((child) => child.className === 'cb-toast'
     && child.textContent.includes('ブロックしました')));
+});
+
+test('Pattern B placeholderはロゴ込み画像全体をkitepon.devリンクにしhover/focus画像を切り替える', async () => {
+  const card = makeElement('article');
+  const sourceName = '西スポWEB OTTO!';
+  const storage = makeStorage({ [sourceName]: { name: sourceName, nameOnly: true } });
+  const { contentName } = loadContentName([card], storage);
+
+  await contentName.init({ storage, adapter: adapterFor(new Map([[card, sourceName]])) }).start();
+
+  const placeholder = card.querySelector('.cb-blocked-placeholder');
+  const brandLink = findDescendant(placeholder, (element) => element.tagName === 'a');
+  assert.ok(brandLink);
+  assert.equal(brandLink.href, BRAND_URL);
+  assert.equal(brandLink.target, '_blank');
+  assert.equal(brandLink.rel, 'noopener');
+  assert.equal(brandLink.attributes['aria-label'], 'kitepon.dev を開く');
+  assert.equal(brandLink.children.length, 1);
+  const art = brandLink.children[0];
+  assert.equal(art.src, 'chrome-extension://test/assets/mascot-blocked.png');
+
+  brandLink.listeners.mouseenter();
+  assert.equal(art.src, 'chrome-extension://test/assets/mascot-blocked-hover.png');
+  brandLink.listeners.focus();
+  brandLink.listeners.mouseleave();
+  assert.equal(art.src, 'chrome-extension://test/assets/mascot-blocked-hover.png');
+  brandLink.listeners.blur();
+  assert.equal(art.src, 'chrome-extension://test/assets/mascot-blocked.png');
 });
 
 test('Pattern Bのブロック済みカードは注入ボタンを出さず、解除後に初めて出す', async () => {
