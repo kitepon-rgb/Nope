@@ -6,8 +6,8 @@
 
 ## 工程境界
 
-- b1-icons: 前回terminal-audit受理後に変更なし。16/48/128pxのアイコン資産とmanifest/action宣言を維持。
-- b2-popup: 前回terminal-audit受理後に変更なし。Nopeブランド、管理UI、`kitepon.dev` 導線を維持。
+- b1-icons: 16/48/128pxのアイコン資産は前回terminal-audit受理後も不変。後続planで更新された現行manifestでも、icons/actionの3サイズ宣言を維持している。
+- b2-popup: 後続のnope-v2/v6-popup等で機能UIは更新され、旧ADD STORE手動追加フォームを撤去して7サイト別一覧とキーワードUIへ置換した。Nopeブランドと`kitepon.dev`導線は維持され、現行b4/b5 smokeで再確認済み。
 - b3-placeholder: 最新採用画像2枚、画像全体の正確な `https://kitepon.dev/` リンク、hover/focus合成、解除ボタンの非遷移を実装。
 - b4-verify: 実ストア `1100223114` を使い、popup、通常/hover/focus、画像リンク、解除、collapse座標をheaded Chromeで確認。掲載画像5枚を1280×800で更新。
 - b5-repackage: v2.0.0据置でZIP/stable unpackedを再生成し、hover画像の同梱漏れを回帰テストで塞いだ。
