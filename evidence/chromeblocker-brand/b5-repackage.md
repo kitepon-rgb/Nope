@@ -65,4 +65,9 @@
 
 ## 独立監査
 
-監査結果を room で受領後に追記する。
+- 監査者: なぎさ
+- room: seq246
+- 対象: commits `00358cc` / `448a0bb`、現物 ZIP / stable unpacked
+- 結果: defect-free、確定欠陥0、実装変更なし
+- 確認: 25ファイルの ZIP payload / unpacked / repo バイト一致、危険pathなし、欠陥版3 PASS / 1 FAIL、現行pack 4/4、YouTube 25/25、full 236/236、4枚のsmoke画像整合
+- owner受理: bell seq250
