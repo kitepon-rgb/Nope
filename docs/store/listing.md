@@ -2,7 +2,7 @@
 
 r6-store-listing の成果物。Chrome Web Store デベロッパーダッシュボードの「Store listing」タブ入力時にこのまま転記できる形でまとめる。r7-submit が実際の入力・提出を行う。
 
-事実確認元: `manifest.json`（permissions・content_scripts）、`src/storage.js`、`src/mtop.js`、`src/mtop-main-relay.js`、`src/content-item.js`、`popup/popup.html`、`docs/evidence/*`、`docs/plan_chromeblocker-release.md`（2026-08-11 時点）。
+事実確認元: `manifest.json`（permissions・content_scripts）、`src/storage.js`、`src/mtop.js`、`src/mtop-main-relay.js`、`src/content-item.js`、`popup/popup.html`、`docs/evidence/*`、`docs/plan_chromeblocker-release.md`（2026-08-12 時点）。
 
 ---
 
@@ -176,18 +176,18 @@ Amazon.co.jp の検索結果ページのみで実行される。
 
 ## Screenshots（掲載順とキャプション）
 
-撮影は r2-placeholder-verify が実施済み（2026-08-10、kotoha実測、`docs/evidence/r2-placeholder-verify.md` 参照）。実測の結果、当初案の1番「ブロック済み商品が消えている」は r1 導入後の**既定挙動と食い違う**と判明したため、掲載順・キャプションをここで実態に合わせて修正した——r1 完了後の既定表示モードは `placeholder`（プレースホルダー表示）であり、商品が「消える」のは `collapse` モードに切替た場合のみ。誤って「既定で商品が消える」と説明すると審査・ユーザー双方に誤解を与えるため、1番をプレースホルダー表示に差し替え、collapseモードは別項目（4番）として独立させた。
+ブランド適用後の画像は b4-verify が 2026-08-12 に実ブラウザで撮り直した（`docs/evidence/b4-verify.md` 参照）。既定表示モードは `placeholder`（プレースホルダー表示）であり、商品が「消える」のは `collapse` モードへ切り替えた場合だけである。誤って「既定で商品が消える」と説明しないよう、1番をプレースホルダー表示、4番を collapse モードとして分ける。
 
 | # | シーン | 画像ファイル | キャプション（日本語） |
 |---|--------|--------------|------------------------|
-| 1 | 検索結果ページ：ブロック済みストアの商品がマスコットプレースホルダーに置き換わっている（既定表示） | `docs/evidence/ac3-placeholder.png`（b4-verify、2026-08-10実測） | ブロックしたストアの商品は、控えめなマスコットプレースホルダーに自動的に置き換わります |
+| 1 | 検索結果ページ：ブロック済みストアの商品がマスコットプレースホルダーに置き換わっている（既定表示） | `docs/evidence/ac3-placeholder.png`（b4-verify、2026-08-12実測、1280×800） | ブロックしたストアの商品は、控えめなマスコットプレースホルダーに自動的に置き換わります |
 | 2 | 商品ページ：「このストアをブロック」ボタン | `docs/evidence/t3-button-injected.png` / `t3-blocked.png`（1280x800での撮り直しが望ましい。b4-verify 対象外のため未更新） | 商品ページの「このストアをブロック」ボタンでワンクリック登録 |
-| 3 | ポップアップ：ブロック中ストア一覧・表示モード切替UI・kitepon.devブランド適用済み | `docs/evidence/ac2-popup.png`（b4-verify、2026-08-10実測） | ポップアップでブロック中のストアを確認・削除、表示モードもいつでも切替できます |
-| 4 | 完全非表示（collapse）モードに切替後の検索結果（後続カードが前へ詰まる） | `docs/evidence/ac5-collapse.png`（b4-verify、2026-08-10実測） | 完全に消して空間を詰める表示にも切替可能です |
-| 5 | 参考：ブロック前の通常の検索結果（Before比較用） | `docs/evidence/ac3-unblock.png`（b4-verify、2026-08-10実測。ブロック解除後の通常表示） | （通常の検索結果。1・4との対比用。5枚目として掲載するか、1枚目の前段として使うかは掲載時に判断） |
+| 3 | ポップアップ：ブロック中ストア一覧・表示モード切替UI・kitepon.devブランド適用済み | `docs/evidence/ac2-popup.png`（b4-verify、2026-08-12実測、1280×800） | ポップアップでブロック中のストアを確認・削除、表示モードもいつでも切替できます |
+| 4 | 完全非表示（collapse）モードに切替後の検索結果（後続カードが前へ詰まる） | `docs/evidence/ac5-collapse.png`（b4-verify、2026-08-12実測、1280×800） | 完全に消して空間を詰める表示にも切替可能です |
+| 5 | 参考：ブロック前の通常の検索結果（Before比較用） | `docs/evidence/ac3-unblock.png`（b4-verify、2026-08-12実測、1280×800。ブロック解除後の通常表示） | （通常の検索結果。1・4との対比用。5枚目として掲載するか、1枚目の前段として使うかは掲載時に判断） |
 
 **掲載方針**: 1枚目は必ず「プレースホルダー表示」という中核体験（既定の見た目）を見せる。2・3枚目で操作方法（ブロックの追加・管理）を示す。4枚目でcollapseモードという追加の柔軟性を見せる。5枚目（Before）は任意——入れる場合は1枚目の前に置いて「導入前後の比較」として見せる構成が分かりやすいが、最終順序の決定はストア掲載時（r7）の裁量とする。1〜4のみでも提出可能な構成として扱ってよい。
 
-**b4-verify（2026-08-10）での更新内容**: r2-verify 時点の旧スクリーンショット（r2-placeholder-visible.png 等）を b4-verify で撮影した kitepon.dev ブランド適用後の新画像（ac3-placeholder.png / ac2-popup.png / ac5-collapse.png）に差し替えた。商品ページボタン（2番）は b4-verify の対象外のため未更新。
+**b4-verify（2026-08-12）での更新内容**: 旧スクリーンショットを、最新オーナー裁定の通常・hover画像と `kitepon.dev` 画像リンクを備えた実装で再撮影した。商品ページボタン（2番）は b4-verify の対象外のため未更新。
 
-**画像サイズについて**: agent-browser デフォルト（1280px 幅 viewport 相当）で撮影済み。popup（3番）は popup ウィンドウの自然なサイズでのクローズアップ。ストア提出時に1280x800キャンバスへの配置編集が要るかは r7-submit で判断すること。
+**画像サイズについて**: b4-verify で更新した1・3・4・5番は、いずれも 1280×800 PNG で撮影済み。

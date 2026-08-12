@@ -1,151 +1,82 @@
-# b4-verify 検証報告
+# b4-verify 実ブラウザ検証報告
 
-検証者: mio（b4-verify worker）  
-実施日: 2026-08-10  
-対象: ChromeBlocker v1.0.0（拡張ID: `nlioakmhphmndbfoadbgfjjigkncjicn`）  
-環境: Chrome for Testing v151.0.7922.77（agent-browser --session mio --extension /mnt/c/Users/kite_/Documents/Program/ChromeBlocker）
+- 検証者: ほたる（b4-verify owner）
+- 実施日: 2026-08-12
+- 対象: Nope v2.0.0（拡張ID: `jihinfddknleadkgniinbklbnpmggpio`）
+- 環境: macOS / Chrome for Testing 151.0.0.0 / `agent-browser` headed
+- セッション: `nope-b4-9878d533adb4`（namespace: `hotaru-b4`）
 
----
-
-## 受入条件と結果サマリ
+## 受入結果
 
 | AC | 内容 | 結果 |
-|----|------|------|
-| AC1 | ツールバー・拡張機能ページのアイコン表示（16/48/128px） | **PASS** |
-| AC2 | ポップアップのブランドUI描画・追加/削除/モード切替/キャッシュクリアの動作 | **PASS** |
-| AC3 | ブロックカードにマスコットプレースホルダー表示・解除ボタンで復元（href変化なし） | **PASS** |
-| AC4 | テキスト「ブロック表示に置き換え」「非表示にして詰める」の存在 | **PASS** |
-| AC5 | 「非表示にして詰める」モードで後続カードが前方にシフト（getBoundingClientRect数値証拠） | **PASS** |
+|---|---|---|
+| AC1 | toolbar・拡張機能ページの 16/48/128px アイコン | **PASS（既存実ブラウザ証跡を継承）** |
+| AC2 | ブランド適用済み popup と追加・削除・モード切替・キャッシュクリア | **PASS** |
+| AC3 | プレースホルダー表示、hover/focus、画像リンク、解除時の非遷移 | **PASS** |
+| AC4 | 表示モード文言 | **PASS** |
+| AC5 | collapse 時に後続カードが前方へ詰まる | **PASS** |
 
----
+今回の変更はアイコン資産・toolbar 設定を変更していない。room seq219 のオーナー裁定により、AC1 の toolbar は既存 b4 実ブラウザ証跡を継承し、今回の再試験を追加完了条件にしていない。今回の headed Chrome では `chrome://extensions` の拡張カードにマスコットアイコンが表示されることを再確認した。`manifest.json` の `icons` と `action.default_icon` はいずれも `icons/icon16.png`、`icons/icon48.png`、`icons/icon128.png` を宣言している。
 
-## AC1: アイコン表示（16/48/128px）
+## AC2: popup の描画と操作
 
-**方法**: `chrome://extensions` ページでカードと詳細ページを目視確認。
+`chrome-extension://jihinfddknleadkgniinbklbnpmggpio/popup/popup.html` を実ブラウザで開いて確認した。
 
-**結果**:
-- 拡張カードにマスコット48pxアイコン表示を確認（`docs/evidence/ac1-extensions-page.png`）
-- アイコン3サイズ（16/48/128px）は `manifest.json` の `icons` フィールドと `action.default_icon` で宣言済み
-- ファイル: `icons/icon16.png`, `icons/icon48.png`, `icons/icon128.png`
+- ブランド UI、`kitepon.dev` リンク、ブロック一覧、キーワード入力、表示モード、キャッシュクリアが描画された。
+- Yahoo ニュースへキーワード `ほたる検証` を追加すると `blockedKeywords.yahoo_news` に保存され、削除すると空配列へ戻った。
+- `非表示にして詰める` を選ぶと `displayMode` が `collapse` になった。
+- `itemSourceCache` に検証用キーを入れてキャッシュクリアすると、そのキーが削除された。
+- AC3 の確認前に `displayMode` を `placeholder` へ戻した。
 
-**スクリーンショット**: `docs/evidence/ac1-extensions-page.png`
+証拠: `docs/evidence/ac2-popup.png`
 
----
+## AC3: AliExpress 実検索面のプレースホルダー
 
-## AC2: ポップアップUI・コントロール動作
+対象ページ: `https://ja.aliexpress.com/w/wholesale-CMP-170HX.html`
 
-**方法**: `chrome-extension://nlioakmhphmndbfoadbgfjjigkncjicn/popup/popup.html` を開き、各コントロールを操作。
+実商品 `1005012900174730` の商品詳細ページを CSR 描画まで待ち、実ストアリンクから `storeId=1100223114`、表示名 `NailNest Store` を取得した。これをブロックし、検索面を再読込した。
 
-**確認項目**:
-1. **ブランドUI描画**: `<h1>ChromeBlocker</h1>`、kitepon.dev フッターリンク、Discovery Orange (`#ef8d32`) の配色確認 → OK
-2. **ストア追加**: URLフィールドに `https://www.aliexpress.com/store/911489458` 入力、「追加」クリック → ストアリスト欄に表示 → OK
-3. **ストア削除**: リスト内の削除ボタンクリック → リストから消去 → OK
-4. **表示モード切替**: `mode-collapse` ラジオボタン → `chrome.storage.sync.displayMode` が `'collapse'` に更新 → OK
-5. **キャッシュクリア**: 「キャッシュクリア」ボタンクリック → `chrome.storage.local.productStoreCache` が `{}` に → OK
+- 検索カードは12件。
+- 実解決された同一ストアの商品4件がプレースホルダーになった。
+- 画像 `assets/mascot-blocked.png` が表示された。
+- 画像全体のリンク先は正確に `https://kitepon.dev/` だった。
+- mouseenter で `assets/mascot-blocked-hover.png` へ切り替わった。
+- focus 中にマウスを外しても hover 画像を維持し、blur 後に通常画像へ戻った。
+- プレースホルダー内に `BLOCKED`、`NailNest Store`、`ブロック解除` が表示された。
+- `ブロック解除` を押すとプレースホルダーは4件から0件になり、カードが復元された。
+- 解除前後の URL は同一で、親リンクへの遷移は発生しなかった。
+- `blockedSources.aliexpress` は空になった。
 
-**スクリーンショット**:
-- `docs/evidence/ac2-popup.png`（ブランドUI描画確認）
-- `docs/evidence/ac2-controls.png`（削除・モード切替・キャッシュクリア後）
+証拠: `docs/evidence/ac3-placeholder.png`、`docs/evidence/ac3-unblock.png`
 
----
+## AC4: 表示モード文言
 
-## AC3: マスコットプレースホルダー表示・解除ボタン動作
+popup の実 DOM で次の文言を確認した。
 
-**方法**: ポップアップ経由でキャッシュを直接注入（mtop API は bot 対策によりヘッドレス環境では使用不可）。`chrome.storage.local.productStoreCache` に productId→storeId マッピングを注入後、`ja.aliexpress.com/w/wholesale-earphone.html` に遷移。
+- `ブロック表示に置き換え`
+- `非表示にして詰める`
 
-**注入データ**:
-- storeId: `911489458`, blockedStores に登録
-- productId 5件 → storeId `911489458` のキャッシュ注入
+## AC5: collapse の座標実測
 
-**測定結果（プレースホルダー5件の getBoundingClientRect）**:
+同じ実ストアを再度ブロックし、`displayMode=collapse` へ切り替えた。商品 `1005012682655574` のカード位置を `getBoundingClientRect()` で前後比較した。
 
-| i | top (px) | left (px) | width (px) | height (px) |
-|---|----------|-----------|------------|-------------|
-| 0 | 158 | 657 | 240 | 227 |
-| 1 | 158 | 913 | 240 | 227 |
-| 2 | 158 | 1169 | 240 | 227 |
-| 3 | 158 | 1425 | 240 | 227 |
-| 4 | 552 | 913 | 240 | 227 |
+| 状態 | top | left |
+|---|---:|---:|
+| placeholder（切替前） | 549 | 344 |
+| collapse（切替後） | 158 | 931.265625 |
 
-- `.cb-blocked-placeholder` 件数: **5**（注入した5件と一致）
+切替後は同カードが次の行から先頭行へ移動し、ブロック対象 wrapper は `display:none`、矩形は0、プレースホルダーは0件になった。後続カードが空いた位置へ前方に詰まることを数値で確認した。
 
-**解除ボタン動作**:
-- 「ブロック解除」ボタン rect: `{x: 723, y: 343, w: 106, h: 29}`
-- クリック前 `location.href`: `https://ja.aliexpress.com/w/wholesale-earphone.html`
-- クリック後 `location.href`: `https://ja.aliexpress.com/w/wholesale-earphone.html`（**変化なし** ✓）
-- クリック後 `.cb-blocked-placeholder` 件数: **0**（全プレースホルダー消去 ✓）
+証拠: `docs/evidence/ac5-collapse.png`
 
-**スクリーンショット**:
-- `docs/evidence/ac3-placeholder.png`（5件プレースホルダー表示中）
-- `docs/evidence/ac3-unblock.png`（解除後、通常カード表示）
+## 掲載画像
 
----
+今回更新した5枚はすべて 1280×800 PNG である。
 
-## AC4: テキスト文言確認
+- `docs/evidence/ac1-extensions-page.png`
+- `docs/evidence/ac2-popup.png`
+- `docs/evidence/ac3-placeholder.png`
+- `docs/evidence/ac3-unblock.png`
+- `docs/evidence/ac5-collapse.png`
 
-**方法**: ポップアップページの `textContent` を eval で取得し文言を確認。
-
-**確認文言**:
-- `popup.html` line 13: `ブロック表示に置き換え`（radio `mode-placeholder` のラベル） ✓
-- `popup.html` line 14: `非表示にして詰める`（radio `mode-collapse` のラベル） ✓
-
----
-
-## AC5: 「非表示にして詰める」モードで後続カードのシフト確認
-
-**方法**:
-1. ベースライン計測: ブロックなし状態でカード位置を記録
-2. キャッシュ注入: storeId `911489458` + productId 5件 + `displayMode: 'collapse'`（`chrome.storage.sync` に設定）
-3. AliExpress 検索ページリロード後、collapse 適用状態で可視カードの位置を計測
-
-**ベースライン（collapse 前、ブロックなし）**:
-
-| globalIndex | top (px) | left (px) |
-|-------------|----------|-----------|
-| 0 | 158 | 657 |
-| 1 | 158 | 913 |
-| 2 | 158 | 1169 |
-| 3 | 158 | 1425 |
-| 4 | 158 | 1681 |
-| 5 | 158 | 1936 |
-| 6 | 552 | 657 |
-
-**collapse 適用後（ブロック済みカードを除いた可視カード）**:
-
-| globalIndex | top (px) | left (px) | シフト（left 差分） |
-|-------------|----------|-----------|---------------------|
-| 2 | 158 | 657 | -512px（1169→657） |
-| 4 | 158 | 913 | -768px（1681→913） |
-| 5 | 158 | 1169 | -767px（1936→1169） |
-| 6 | 158 | 1425 | — |
-| 8 | 158 | 1681 | — |
-| 9 | 158 | 1936 | — |
-| 10 | 573 | 657 | — |
-
-- collapse 前: 総カード数=30, 可視カード=30
-- collapse 後: 総カード数=30, 可視カード=26（非表示=4件）
-- `.cb-blocked-placeholder` 件数: **0**（プレースホルダーは挿入されない ✓）
-- 後続カード（globalIndex=2）が left=1169→657 へ **512px 前方にシフト** ✓
-
-**スクリーンショット**: `docs/evidence/ac5-collapse.png`
-
----
-
-## ストアリスティング用スクリーンショット更新
-
-b4-verify で撮影した kitepon.dev ブランド適用後の新画像を `docs/store/listing.md` のスクリーンショット欄に反映した:
-
-| 掲載# | 旧ファイル | 新ファイル |
-|-------|------------|------------|
-| 1（プレースホルダー） | `r2-placeholder-visible.png` | `ac3-placeholder.png` |
-| 3（ポップアップ） | `r2-popup-closeup.png` | `ac2-popup.png` |
-| 4（collapseモード） | `r2-collapse-mode.png` | `ac5-collapse.png` |
-| 5（解除後比較） | `r2-store-search-before-block.png` | `ac3-unblock.png` |
-
-追加撮影ファイル（store-extensions.png, store-popup.png）は b4-verify での追加確認用。
-
----
-
-## 総評
-
-5つすべての受入条件が数値証拠付きで PASS。ブランド適用・コントロール動作・プレースホルダー表示・collapse シフト、いずれも実測で確認。バグは発見されなかった。
+以上の変更契約に不具合は見つからなかった。
