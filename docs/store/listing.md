@@ -1,15 +1,16 @@
 # Chrome Web Store 掲載情報（listing）
 
-r6-store-listing の成果物。Chrome Web Store デベロッパーダッシュボードの「Store listing」タブ入力時にこのまま転記できる形でまとめる。r7-submit が実際の入力・提出を行う。
+Chrome Web Storeデベロッパーダッシュボードの「Store listing」「Privacy practices」へ転記するv2.0.1の入力正本。Dashboardへの保存・再提出は別の操作gateで行う。
 
-事実確認元: `manifest.json`（permissions・content_scripts）、`src/storage.js`、`src/mtop.js`、`src/mtop-main-relay.js`、`src/content-item.js`、`popup/popup.html`、`docs/evidence/*`、`docs/plan_chromeblocker-release.md`（2026-08-12 時点）。
+事実確認元: `manifest.json`（permissions・content_scripts）、`src/storage.js`、`src/mtop.js`、`src/mtop-main-relay.js`、`src/content-item.js`、`popup/popup.html`、`docs/evidence/store-v2.0.1/`、RootSitePromotionの`docs/nope-product-contract.md`とChrome Web Store公式listing要件（2026-08-15時点）。
 
 ---
 
 ## 製品名・URL
 
 - **製品名**: Nope — 見たくないもの見せません
-- **Homepage URL**: https://kitepon.dev/
+- **Homepage URL**: https://kitepon.dev/products/nope/
+- **Support URL**: https://github.com/kitepon/Nope/issues
 - **Privacy policy URL**: https://github.com/kitepon/Nope/blob/main/docs/store/privacy.md
 
 ---
@@ -158,8 +159,8 @@ Amazon.co.jp の検索結果ページのみで実行される。
 > - ブロックリストと設定はchrome.storageを利用して保存します
 > - 発信元の解決に必要な通信は、閲覧対象サイト自身のドメインに対してのみ行います
 >
-> 【対応サイト】
-> AliExpress、楽天市場、Yahoo!ショッピング、ヤフオク、Amazon.co.jp、YouTube、Yahoo!ニュース、Yahoo! JAPAN
+> 【対応範囲】
+> 7サービス群・8対応面。対応面、制約、現在の動作状況は製品ページと公開sourceで確認できます。
 
 **誇大表現・煽り文言の排除について**: 拡張内部の UI（トースト通知等、`src/content-item.js`）には煽情的な文言はない（「〇〇をブロックしました」「〇〇のブロックを解除しました」という淡々とした通知のみ）。
 
@@ -175,15 +176,28 @@ Amazon.co.jp の検索結果ページのみで実行される。
 
 ---
 
-## Screenshots（実際の掲載順）
+## Graphic assets（実際の掲載順）
 
-ブランド適用後の画像は b4-verify が 2026-08-12 に実ブラウザで撮り直した（`docs/evidence/b4-verify.md` 参照）。既定表示モードは `placeholder`（プレースホルダー表示）であり、商品が「消える」のは `collapse` モードへ切り替えた場合だけである。誤って「既定で商品が消える」と説明しないよう、1番をプレースホルダー表示、4番を collapse モードとして分ける。
+v2.0.1をChrome for Testing 152.0.7977.42へLoad unpackedし、実在するAliExpress商品面と検索面、実extension popupから取得した。機能や結果を生成しておらず、追加したのは見出し、実画面のcrop、同一画面の比較、事実説明だけである。raw captureと制作境界は`docs/evidence/store-v2.0.1/README.md`、完成素材は`assets/store/README.md`を正とする。
+
+既定表示モードは`placeholder`であり、対象カードを消して一覧を詰めるのは利用者が`collapse`を選んだ場合だけである。
 
 | # | シーン | 画像ファイル |
 |---|--------|--------------|
-| 1 | ブロック済みストアの商品をマスコットプレースホルダーへ置換 | `docs/evidence/ac3-placeholder.png` |
-| 2 | ブロック中の発信元と表示モードを管理するポップアップ | `docs/evidence/ac2-popup.png` |
-| 3 | 完全非表示（collapse）モード | `docs/evidence/ac5-collapse.png` |
-| 4 | ブロック解除後の通常表示 | `docs/evidence/ac3-unblock.png` |
+| 1 | ブロック済みストアの商品を現行Nopeマスコットのplaceholderへ置換 | `assets/store/screenshot-01-placeholder.png` |
+| 2 | 実在する対応商品ページへ追加された「このストアをブロック」操作 | `assets/store/screenshot-02-block-source.png` |
+| 3 | popupでサイト別発信元、キーワード、表示モードを管理 | `assets/store/screenshot-03-manage.png` |
+| 4 | 同じ検索面におけるplaceholderとcollapseの表示差 | `assets/store/screenshot-04-display-modes.png` |
+| 5 | 7サービス群・8対応面、Nope専用account不要、開発者serverへ送信しない境界 | `assets/store/screenshot-05-supported-and-private.png` |
 
-4枚ともb4-verifyで2026-08-12に実ブラウザ撮影した1280×800・24ビットPNG（アルファなし）。
+5枚とも1280×800・8-bit RGB・アルファなしのPNG。旧名、QA用余白、debug表示、個人情報、account情報を含まない。
+
+### Store icon / promotional image
+
+- **Store icon（128×128）**: `assets/store/store-icon-128.png`
+  - 現行Nope iconを96×96で中央配置し、四辺へ16pxの透明paddingを確保
+- **Small promo tile（440×280）**: `assets/store/small-promo-440x280.png`
+  - 現行Nope product identityを先に置き、短い日本語価値だけを表示
+- **Marquee（1400×560）**: 今回は作成しない。任意素材であり、実公開前の必須入力へ加えない
+
+画像のDashboard保存、審査取消、再申請、publishはこのlisting契約の作成範囲外であり、未実施。
