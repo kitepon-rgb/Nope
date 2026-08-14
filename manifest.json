@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Nope — 見たくないもの見せません",
-  "version": "2.0.0",
-  "description": "指定した発信元やキーワードのコンテンツを閲覧中のWebページから非表示にします。AliExpress・楽天・Amazon・YouTube・Yahoo!など7サイトに対応。",
+  "version": "2.0.1",
+  "description": "指定した発信元やキーワードをもとに、検索結果や一覧から見たくないコンテンツを隠します。",
   "permissions": ["storage"],
   "icons": {
     "16": "icons/icon16.png",
