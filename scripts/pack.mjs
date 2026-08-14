@@ -12,8 +12,8 @@
 // 両者は常に同一内容になる（ZIPだけを別経路で作ると同種の乖離が再発するので避ける）。
 //
 // 実行: node scripts/pack.mjs [出力先ZIPパス]
-//   省略時は dist/chromeblocker-v<manifestのversion>.zip
-//   unpacked面は同じディレクトリの dist/chromeblocker-v<version>-unpacked/ に生成する
+//   省略時は dist/nope-v<manifestのversion>.zip
+//   unpacked面は同じディレクトリの dist/nope-v<version>-unpacked/ に生成する
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
@@ -56,8 +56,8 @@ function main() {
   const outArg = process.argv[2];
   const outPath = outArg
     ? resolve(outArg)
-    : join(repoRoot, "dist", `chromeblocker-v${version}.zip`);
-  const unpackedPath = join(dirname(outPath), `chromeblocker-v${version}-unpacked`);
+    : join(repoRoot, "dist", `nope-v${version}.zip`);
+  const unpackedPath = join(dirname(outPath), `nope-v${version}-unpacked`);
 
   mkdirSync(dirname(outPath), { recursive: true });
   if (existsSync(outPath)) {

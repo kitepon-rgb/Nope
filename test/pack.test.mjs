@@ -1,5 +1,5 @@
 // scripts/pack.mjs のテスト。
-// 2026-08-11実測の配布欠陥（room[95]）: dist/chromeblocker-v2.0.0-unpacked が増分コピーのまま
+// 2026-08-11実測の配布欠陥（room[95]）: stable unpacked面が増分コピーのまま
 // 放置され、リポジトリ側で撤去したファイル（youtube_watch.js）がユーザーの読み込み中拡張に
 // 残留し続けた。pack.mjsをchild processとして実際に実行し、ZIP/unpacked面の同一性と
 // 「stable unpacked面は削除差分込みで再生成される（撤去済みファイルが残らない）」ことを検証する。
@@ -43,10 +43,10 @@ test('pack.mjs: ZIPとunpacked面のファイル一覧が一致する', () => {
   const outDir = mkdtempSync(path.join(tmpdir(), 'pack-test-'));
   try {
     const version = readManifestVersion();
-    const zipPath = path.join(outDir, `chromeblocker-v${version}.zip`);
+    const zipPath = path.join(outDir, `nope-v${version}.zip`);
     execFileSync('node', [packScript, zipPath], { cwd: repoRoot });
 
-    const unpackedPath = path.join(outDir, `chromeblocker-v${version}-unpacked`);
+    const unpackedPath = path.join(outDir, `nope-v${version}-unpacked`);
     assert.ok(existsSync(unpackedPath), 'unpacked面が生成されていない');
     assert.ok(existsSync(path.join(unpackedPath, 'manifest.json')), 'unpacked直下にmanifest.jsonが無い');
 
@@ -72,8 +72,8 @@ test('pack.mjs: 通常・hover両方のマスコット画像を配布物へ同�
   const outDir = mkdtempSync(path.join(tmpdir(), 'pack-test-'));
   try {
     const version = readManifestVersion();
-    const zipPath = path.join(outDir, `chromeblocker-v${version}.zip`);
-    const unpackedPath = path.join(outDir, `chromeblocker-v${version}-unpacked`);
+    const zipPath = path.join(outDir, `nope-v${version}.zip`);
+    const unpackedPath = path.join(outDir, `nope-v${version}-unpacked`);
     execFileSync('node', [packScript, zipPath], { cwd: repoRoot });
 
     const mascotEntries = [
@@ -101,8 +101,8 @@ test('pack.mjs: unpacked面は削除差分込みで再生成される（撤去�
   const outDir = mkdtempSync(path.join(tmpdir(), 'pack-test-'));
   try {
     const version = readManifestVersion();
-    const zipPath = path.join(outDir, `chromeblocker-v${version}.zip`);
-    const unpackedPath = path.join(outDir, `chromeblocker-v${version}-unpacked`);
+    const zipPath = path.join(outDir, `nope-v${version}.zip`);
+    const unpackedPath = path.join(outDir, `nope-v${version}-unpacked`);
 
     // リポジトリでは既に撤去されたファイルが、前回のpack実行の残骸として
     // unpacked面にだけ残っている状態を模す（2026-08-11実測のyoutube_watch.js残存と同じ形）。
@@ -124,8 +124,8 @@ test('pack.mjs: 撤去済みのyoutube_watch.jsが現在の同梱物に含まれ
   const outDir = mkdtempSync(path.join(tmpdir(), 'pack-test-'));
   try {
     const version = readManifestVersion();
-    const zipPath = path.join(outDir, `chromeblocker-v${version}.zip`);
-    const unpackedPath = path.join(outDir, `chromeblocker-v${version}-unpacked`);
+    const zipPath = path.join(outDir, `nope-v${version}.zip`);
+    const unpackedPath = path.join(outDir, `nope-v${version}-unpacked`);
     execFileSync('node', [packScript, zipPath], { cwd: repoRoot });
 
     assert.equal(existsSync(path.join(unpackedPath, 'src', 'adapters', 'youtube_watch.js')), false,

@@ -1,0 +1,7 @@
+# Security policy
+
+Nopeの脆弱性、意図しない権限利用、閲覧情報の送信が疑われる事象は、公開Issueに詳細を書かず、repository ownerへGitHubのprivate vulnerability reportingが利用可能な場合はそちらから報告してください。
+
+private reportingが利用できない場合は、再現に必要な最小限の概要だけをIssueで知らせてください。Cookie、認証トークン、閲覧履歴、ブロック対象、URLのquery、画面全体のスクリーンショットは掲載しないでください。
+
+日本語での報告を受け付けます。返信期限や修正期限は約束しません。

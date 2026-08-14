@@ -1,6 +1,6 @@
 # Nope — 見たくないもの見せません プライバシーポリシー
 
-最終更新日: 2026-08-11
+最終更新日: 2026-08-15
 
 公開 URL（Chrome Web Store 申告用）: https://github.com/kitepon/Nope/blob/main/docs/store/privacy.md
 
@@ -11,6 +11,8 @@ Chrome Web Store デベロッパーダッシュボードの「Privacy practices�
 Nope — 見たくないもの見せません（以下「本拡張」）は、ブロック対象を判定するため、閲覧中の対応サイトに表示されたページ内容とURLをブラウザ内で処理します。AliExpressでは、商品IDからストアIDを解決する署名を作るため、同サイトが発行した`_m_h5_tk` Cookieのトークン部分をブラウザ内で一時的に読み取ります。
 
 本拡張の開発者は、これらのデータを収集・受信しません。本拡張にアクセス解析・広告・トラッキング用の通信はなく、開発者が運営するサーバーや、閲覧対象サイトと無関係な第三者のサーバーも使用しません。
+
+ブロック後のplaceholderとpopup footerには、運営主体を示すため`kitepon.dev`への固定リンクがあります。リンクは`utm_source=nope`、`utm_medium=chrome_extension`、`utm_campaign=nope-brand-link`と、表示位置を表す固定の`utm_content`だけを付けます。閲覧先、ブロック対象、キーワード、現在URL、query、fragmentはリンクへ含めず、extension内の行動やブロック設定を計測しません。
 
 Chrome Web Storeの分類に沿うと、本拡張が機能提供のために取り扱うデータは次の3種類です。
 
@@ -86,3 +88,4 @@ Chrome Web Storeの分類に沿うと、本拡張が機能提供のために取�
 - 2026-08-11: v2.0.0 の7サイト対応、現行ストレージキー、同一サイトへの発信元解決通信へ更新
 - 2026-08-11: YouTube（yt-home-search）へhandle→チャンネルID解決の通信を追加（ブロック/解除操作時のみ）
 - 2026-08-12: Chrome Web Store公式定義に合わせ、端末内処理を含むデータ取り扱い（認証情報・ウェブ履歴・ウェブサイト内容）を明示
+- 2026-08-15: v2.0.1の固定campaignによる`kitepon.dev` root linkを追記。extension内analyticsを追加しない境界を明記

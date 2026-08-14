@@ -10,7 +10,7 @@ import vm from 'node:vm';
 const SRC = path.join(import.meta.dirname, '..', 'src', 'content-search.js');
 const ALIEXPRESS_INIT_SRC = path.join(import.meta.dirname, '..', 'src', 'content-aliexpress-init.js');
 const MANIFEST = path.join(import.meta.dirname, '..', 'manifest.json');
-const BRAND_URL = 'https://kitepon.dev/';
+const BRAND_URL = 'https://kitepon.dev/?utm_source=nope&utm_medium=chrome_extension&utm_campaign=nope-brand-link&utm_content=blocked-placeholder';
 
 class FakeMutationObserver {
   observe() {}

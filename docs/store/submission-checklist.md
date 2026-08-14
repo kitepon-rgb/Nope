@@ -5,7 +5,7 @@ r6-store-listing の成果物その3。r7-submit がこのチェックリスト�
 ## 前提（r7 着手前に揃っているべきもの）
 
 - [ ] r2-placeholder-verify 完了（`docs/store/listing.md` のスクリーンショット表 4・5 が撮影済みになっている）
-- [ ] r3-icons 完了（`manifest.json` に `icons`（16/48/128px）があり、`version` が `2.0.0` になっている）
+- [ ] r3-icons 完了（`manifest.json` に `icons`（16/48/128px）があり、`version` が `2.0.1` になっている）
 - [ ] r4-github 完了（public repo 作成・push 済み。README にプライバシーポリシーへのリンクがある）
 - [ ] v8-package 完了（配布用 ZIP が生成済み。同梱物は `manifest.json` / `src/` / `popup/` / `icons/` / `assets/mascot-blocked.png` のみで `.lattice/` `.team/` `docs/` `test/` は含まれないこと。Load unpacked での配布物 smoke 済み）
 - [ ] オーナーによる Chrome Web Store デベロッパー登録・$5 登録料の支払いが完了している（design memo・plan 上、オーナー実施と明記）
@@ -14,7 +14,7 @@ r6-store-listing の成果物その3。r7-submit がこのチェックリスト�
 
 - [ ] `manifest.json` の `version` と、アップロードする ZIP 内の `manifest.json` の `version` が一致している
 - [ ] `permissions` が `["storage"]` のみであること（増えていたら `docs/store/listing.md` の Permission justification を更新してから提出する）
-- [ ] `content_scripts[].matches` が `docs/store/listing.md` の v2.0.0 manifest 抜粋と一致すること（対象ドメインが増減していたら listing.md / privacy.md を更新してから提出する）
+- [ ] `content_scripts[].matches` が `docs/store/listing.md` の v2.0.1 manifest 抜粋と一致すること（対象ドメインが増減していたら listing.md / privacy.md を更新してから提出する）
 - [ ] `docs/store/listing.md` の Single purpose・説明文・スクリーンショット表が最新の実装と食い違っていないか目視確認
 
 ## Store listing タブ入力
@@ -44,13 +44,13 @@ r6-store-listing の成果物その3。r7-submit がこのチェックリスト�
 ## Distribution（公開範囲）設定
 
 - [ ] Visibility: **Unlisted**（オーナー裁定 2026-08-10、`docs/plan_chromeblocker-release.md` 参照。検索に載らずリンク限定になることを提出時に再確認する）
-- [ ] ZIP アップロード: v8-package が生成した `dist/chromeblocker-v2.0.0.zip`（Load unpacked smoke 済みのもの）
+- [ ] ZIP アップロード: `node scripts/pack.mjs`が生成した`dist/nope-v2.0.1.zip`（Load unpacked smoke 済みのもの）
 
 ## 提出後
 
 - [ ] 審査ステータスの確認（Chrome Web Store は審査に数日〜数週間かかることがある。P0 ではなく通常の外部完了待ちとして扱う）
 - [ ] 審査通過後、Mac へストア経由でインストールし、以下の smoke を実施:
-  - [ ] 7サイトの対象ページで、ブロック対象の発信元がプレースホルダーへ置換される
+  - [ ] 7サービス群・8対応面の対象ページで、ブロック対象の発信元がプレースホルダーへ置換される
   - [ ] AliExpress 商品ページの「このストアをブロック」ボタンが動作する
   - [ ] Yahoo ニュース / Yahoo! JAPAN でキーワードブロックが動作する
   - [ ] ポップアップでサイト別ブロックリストとキーワードの一覧・追加・削除ができる

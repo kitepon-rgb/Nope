@@ -17,7 +17,7 @@ const CB_NAME = (() => {
   const MASCOT_IMAGE_PATH = 'assets/mascot-blocked.png';
   const MASCOT_HOVER_IMAGE_PATH = 'assets/mascot-blocked-hover.png';
   const MASCOT_DISPLAY_SIZE = 64;
-  const BRAND_URL = 'https://kitepon.dev/';
+  const BRAND_URL = 'https://kitepon.dev/?utm_source=nope&utm_medium=chrome_extension&utm_campaign=nope-brand-link&utm_content=blocked-placeholder';
 
   // kitepon.dev ブランド正典（color-system.md）。content-search.js と同値を維持すること。
   const COLOR_ORANGE = '#ef8d32';

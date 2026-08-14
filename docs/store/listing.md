@@ -24,7 +24,7 @@ r6-store-listing の成果物。Chrome Web Store デベロッパーダッシュ�
 
 **この宣言の根拠と実装の現状:**
 
-v2.0.0 では7サイトの発信元ブロックと、Yahoo ニュース / Yahoo! JAPAN のキーワードブロックを実装済み（`docs/roadmap-block-targets.md`、`docs/evidence/nope-v2-terminal-audit.md` 参照）。宣言文は将来像ではなく、現在の実装をそのまま要約している。
+v2.0.1では7サービス群・8対応面の発信元ブロックと、Yahooニュース群のキーワードブロックを実装済み（`docs/roadmap-block-targets.md`、`docs/evidence/nope-v2-terminal-audit.md`参照）。宣言文は将来像ではなく、現在の実装をそのまま要約している。
 
 拡張の実装は複数の対応ページとポップアップにまたがるが、すべて上記1目的のための手段でしかない。
 
@@ -37,7 +37,7 @@ v2.0.0 では7サイトの発信元ブロックと、Yahoo ニュース / Yahoo!
 
 ## Permission justification（権限の正当化）
 
-Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `content_scripts.matches` の両方がホストアクセスとして表示される。実際の `manifest.json`（v2.0.0 時点）は次の通り:
+Chrome Web Store の権限一覧には `manifest.json` の `permissions` と `content_scripts.matches` の両方がホストアクセスとして表示される。実際の `manifest.json`（v2.0.1時点）は次の通り:
 
 ```json
 "permissions": ["storage"],
@@ -138,7 +138,7 @@ Amazon.co.jp の検索結果ページのみで実行される。
 
 ### 短い説明（Short description、132文字以内）
 
-> 指定した発信元やキーワードのコンテンツを閲覧中のWebページから非表示にします。AliExpress・楽天・Amazon・YouTube・Yahoo!など7サイトに対応。
+> 指定した発信元やキーワードのコンテンツを閲覧中のWebページから非表示にします。7サービス群・8対応面に対応。
 
 ### 詳細説明（Detailed description、実入力）
 

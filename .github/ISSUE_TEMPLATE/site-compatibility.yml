@@ -1,0 +1,39 @@
+name: 対応サイトの表示・操作の不具合
+description: Nopeが対応面で正しく動かない時の報告
+title: "[対応サイト] "
+labels: ["site-compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ブロック対象・Cookie・ログイン情報・個人情報を本文や画像へ含めないでください。
+  - type: dropdown
+    id: surface
+    attributes:
+      label: 対応面
+      options:
+        - AliExpress 検索結果
+        - AliExpress 商品ページ
+        - 楽天市場 検索結果
+        - Yahoo!ショッピング 検索結果
+        - ヤフオク 検索結果
+        - Amazon.co.jp 検索結果
+        - YouTube 検索結果
+        - Yahoo!ニュース
+        - Yahoo! JAPAN
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待した動作と実際の動作
+      description: URLのqueryや個人情報を省いた再現手順を書いてください。
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Nopeのバージョン
+      placeholder: "例: 2.0.1"
+    validations:
+      required: true

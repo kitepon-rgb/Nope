@@ -5,7 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const SRC = path.join(import.meta.dirname, '..', 'src', 'content-name.js');
-const BRAND_URL = 'https://kitepon.dev/';
+const BRAND_URL = 'https://kitepon.dev/?utm_source=nope&utm_medium=chrome_extension&utm_campaign=nope-brand-link&utm_content=blocked-placeholder';
 
 class FakeMutationObserver {
   observe() {}
