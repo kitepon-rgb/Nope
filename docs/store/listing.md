@@ -10,7 +10,7 @@ r6-store-listing の成果物。Chrome Web Store デベロッパーダッシュ�
 
 - **製品名**: Nope — 見たくないもの見せません
 - **Homepage URL**: https://kitepon.dev/
-- **Privacy policy URL**: https://github.com/kitepon-rgb/Nope/blob/main/docs/store/privacy.md
+- **Privacy policy URL**: https://github.com/kitepon/Nope/blob/main/docs/store/privacy.md
 
 ---
 
@@ -120,7 +120,7 @@ Amazon.co.jp の検索結果ページのみで実行される。
 
 ## Privacy declaration（プライバシー申告、要約）
 
-詳細は `docs/store/privacy.md`（公開URL: https://github.com/kitepon-rgb/Nope/blob/main/docs/store/privacy.md）。ダッシュボードの **Privacy practices** タブでの申告方針:
+詳細は `docs/store/privacy.md`（公開URL: https://github.com/kitepon/Nope/blob/main/docs/store/privacy.md）。ダッシュボードの **Privacy practices** タブでの申告方針:
 
 - **Data handling**: 本拡張は、機能提供のために認証情報（AliExpressの`_m_h5_tk`トークン）、ウェブ履歴（現在の対応ページとカードURL）、ウェブサイト内容（タイトル・リンク・発信元情報）をブラウザ内で処理する。一部の公開識別子とAliExpress署名は閲覧対象サイト自身へ送信する。開発者・提供者はデータを収集・受信せず、無関係な第三者への送信もない。
 - **Data usage 該当あり**: Authentication information / Web history / Website content。

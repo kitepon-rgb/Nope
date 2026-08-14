@@ -2,7 +2,7 @@
 
 最終更新日: 2026-08-11
 
-公開 URL（Chrome Web Store 申告用）: https://github.com/kitepon-rgb/Nope/blob/main/docs/store/privacy.md
+公開 URL（Chrome Web Store 申告用）: https://github.com/kitepon/Nope/blob/main/docs/store/privacy.md
 
 Chrome Web Store デベロッパーダッシュボードの「Privacy practices」タブでの申告は、このページの内容と食い違わせないこと。
 
