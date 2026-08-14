@@ -84,6 +84,7 @@ function main() {
   // エントリ名は必ずフォワードスラッシュで統一する（PowerShell の Compress-Archive は
   // バックスラッシュで保存するため WSL 上での展開時に平坦ファイル名になる問題がある。
   // Python zipfile は常にフォワードスラッシュを使う）。
+  // entry順・timestamp・permissionも固定し、同じsourceから同じSHA-256を再現できるようにする。
   execFileSync(
     "python3",
     [
@@ -91,12 +92,19 @@ function main() {
       [
         "import zipfile, os, sys",
         "staging, outpath = sys.argv[1], sys.argv[2]",
-        "with zipfile.ZipFile(outpath, 'w', zipfile.ZIP_DEFLATED) as zf:",
-        "    for root, dirs, files in os.walk(staging):",
-        "        for f in files:",
-        "            fp = os.path.join(root, f)",
-        "            arcname = os.path.relpath(fp, staging).replace(os.sep, '/')",
-        "            zf.write(fp, arcname)",
+        "entries = []",
+        "for root, dirs, files in os.walk(staging):",
+        "    dirs.sort()",
+        "    for f in sorted(files):",
+        "        entries.append((os.path.relpath(os.path.join(root, f), staging).replace(os.sep, '/'), os.path.join(root, f)))",
+        "with zipfile.ZipFile(outpath, 'w') as zf:",
+        "    for arcname, fp in sorted(entries):",
+        "        info = zipfile.ZipInfo(arcname, date_time=(1980, 1, 1, 0, 0, 0))",
+        "        info.create_system = 3",
+        "        info.external_attr = (0o100644 & 0xFFFF) << 16",
+        "        info.compress_type = zipfile.ZIP_DEFLATED",
+        "        with open(fp, 'rb') as source:",
+        "            zf.writestr(info, source.read(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)",
       ].join("\n"),
       unpackedPath,
       outPath,

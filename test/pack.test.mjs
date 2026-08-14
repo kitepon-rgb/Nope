@@ -5,6 +5,7 @@
 // 「stable unpacked面は削除差分込みで再生成される（撤去済みファイルが残らない）」ことを検証する。
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync,
 } from 'node:fs';
@@ -18,6 +19,10 @@ const packScript = path.join(repoRoot, 'scripts', 'pack.mjs');
 
 function readManifestVersion() {
   return JSON.parse(readFileSync(path.join(repoRoot, 'manifest.json'), 'utf8')).version;
+}
+
+function sha256(file) {
+  return createHash('sha256').update(readFileSync(file)).digest('hex');
 }
 
 function listFilesRecursive(dir) {
@@ -133,6 +138,23 @@ test('pack.mjs: 撤去済みのyoutube_watch.jsが現在の同梱物に含まれ
     const zipEntries = listZipEntries(zipPath);
     assert.ok(!zipEntries.includes('src/adapters/youtube_watch.js'),
       'youtube_watch.jsがZIPに含まれている');
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('pack.mjs: 同じsourceから同じSHA-256のZIPを再生成できる', () => {
+  const outDir = mkdtempSync(path.join(tmpdir(), 'pack-test-'));
+  try {
+    const version = readManifestVersion();
+    const zipPath = path.join(outDir, `nope-v${version}.zip`);
+
+    execFileSync('node', [packScript, zipPath], { cwd: repoRoot });
+    const firstHash = sha256(zipPath);
+    execFileSync('node', [packScript, zipPath], { cwd: repoRoot });
+
+    assert.equal(sha256(zipPath), firstHash,
+      '同じsourceをpackし直したZIPのSHA-256が変化した');
   } finally {
     rmSync(outDir, { recursive: true, force: true });
   }
