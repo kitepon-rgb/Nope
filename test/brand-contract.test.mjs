@@ -18,13 +18,16 @@ test('導入後の2リンクは固定campaignでkitepon.dev rootへ戻る', () =
   assert.doesNotMatch(name, /const BRAND_URL = 'https:\/\/kitepon\.dev\/';/);
 });
 
-test('READMEは審査中を正確に示し、日本語の利用者入口を持つ', () => {
+test('READMEはStore公開済みを示し、日本語の利用者入口を持つ', () => {
   const readme = readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
   for (const heading of ['5秒でわかる', '現在の配布状態', '30秒の使い方', '対応する7サービス群・8対応面', 'プライバシー・権限・制限']) {
     assert.match(readme, new RegExp(`## ${heading}`));
   }
-  assert.match(readme, /2\.0\.1は再申請済みで、Chrome Web Storeの審査中/);
+  assert.match(readme, /2\.0\.1はChrome Web Storeで公開済み/);
+  assert.match(readme, /https:\/\/chromewebstore\.google\.com\/detail\/bodffbgmcokkhlibiehhelefknmbiaaf/);
+  assert.match(readme, /Load unpackedは開発者向けの確認手順/);
   assert.match(readme, /docs\/evidence\/r5-smoke-restored\.png/);
   assert.match(readme, /docs\/evidence\/r5-smoke-blocked\.png/);
-  assert.doesNotMatch(readme, /Chrome ウェブストアには未公開のため、開発者モードでの読み込み/);
+  assert.doesNotMatch(readme, /審査中/);
+  assert.doesNotMatch(readme, /installできると見せるリンクを置きません/);
 });
