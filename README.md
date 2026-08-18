@@ -8,7 +8,7 @@ Nopeは、見たくない発信元や言葉を、対応する検索結果・一�
 
 ## 現在の配布状態
 
-**v2.0.1は再申請済みで、Chrome Web Storeの審査中です。** Store公開を確認するまでは、installできると見せるリンクを置きません。公開sourceとこのREADMEは今すぐ読めますが、一般利用者向けの主導線はStore公開後に有効化します。
+**v2.0.1はChrome Web Storeで公開済みです。** 一般利用者向けの導入は [Chrome Web Store](https://chromewebstore.google.com/detail/bodffbgmcokkhlibiehhelefknmbiaaf) から行ってください。公開sourceとこのREADMEも今すぐ読めます。
 
 開発者がsourceから確認する場合は、下の「開発・テスト」を使ってください。Load unpackedは開発者向けの確認手順であり、一般利用者向けの導入手順ではありません。
 
